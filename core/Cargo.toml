@@ -1,0 +1,15 @@
+[package]
+name = "completion-core"
+version = "0.1.0"
+authors = ["KaiJewson <kai.jewson@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+futures-core = { version = "0.3.8", default-features = false }
+
+[features]
+default = ["std"]
+std = ["alloc", "futures-core/std"]
+alloc = ["futures-core/alloc"]
