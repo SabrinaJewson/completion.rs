@@ -1,18 +1,20 @@
 //! Macro to generate completion-based async functions and blocks. This crate shouldn't be used
 //! directly, instead use `completion-util`.
 
+use std::mem;
+
 use proc_macro::TokenStream as TokenStream1;
 
-use proc_macro2::{Ident, Span, TokenStream, TokenTree};
-use quote::{quote, quote_spanned, ToTokens};
-use syn::parse::{self, Parse, ParseStream};
+use proc_macro2::{Delimiter, Group, Ident, Span, TokenStream};
+use quote::{quote, quote_spanned, ToTokens, TokenStreamExt};
+use syn::parse::{self, Parse, ParseStream, Parser};
 use syn::parse_quote;
 use syn::punctuated::Punctuated;
-use syn::visit_mut::VisitMut;
+use syn::visit_mut::{self, VisitMut};
 use syn::MetaNameValue;
-use syn::{token, Token};
+use syn::Token;
 use syn::{Block, Lifetime, Lit, Receiver, ReturnType, Stmt};
-use syn::{Expr, ExprAsync, ExprAwait, ExprClosure, ExprMacro};
+use syn::{Expr, ExprAsync};
 use syn::{GenericParam, Generics, LifetimeDef};
 use syn::{Item, ItemFn};
 use syn::{Type, TypeReference};
@@ -21,16 +23,32 @@ use syn::{Type, TypeReference};
 pub fn completion(attr: TokenStream1, input: TokenStream1) -> TokenStream1 {
     match completion2(attr.into(), input.into()) {
         Ok(tokens) => tokens,
-        Err(e) => e.to_compile_error(),
+        Err(e) => e.into_compile_error(),
     }
     .into()
 }
 
 fn completion2(attr: TokenStream, input: TokenStream) -> parse::Result<TokenStream> {
-    Ok(transform_completion_input(
-        &syn::parse2(attr)?,
-        syn::parse2(input)?,
-    ))
+    let opts = Opts::parse_attr.parse2(attr)?;
+    let input = syn::parse2(input)?;
+
+    Ok(match input {
+        CompletionInput::AsyncFn(f) => transform_async_fn(&opts, f),
+        CompletionInput::AsyncBlock(async_block, semi) => {
+            let crate_path = &opts.crate_path;
+
+            let stmts = transform_stmts(&opts, None, async_block.block.stmts);
+            let async_token = async_block.async_token;
+            let capture = async_block.capture;
+
+            quote! {
+                #crate_path::__make_completion_future(#async_token #capture {
+                    #stmts
+                })
+                #semi
+            }
+        }
+    })
 }
 
 #[test]
@@ -45,7 +63,7 @@ fn test_completion() {
         .unwrap()
         .to_string(),
         quote! {
-            ::completion_util::MustComplete::new(async {
+            ::completion_util::__make_completion_future(async {
                 #[allow(unused_imports)]
                 use ::completion_util::__CompletionFutureIntoFutureUnsafe;
 
@@ -66,9 +84,8 @@ fn test_completion() {
         .unwrap()
         .to_string(),
         quote! {
-            #[must_use]
             fn foo<'__completion_future>() -> impl ::completion_util::CompletionFuture<Output = ()> + '__completion_future {
-                ::completion_util::MustComplete::new(async move {
+                ::completion_util::__make_completion_future(async move {
                     #[allow(unused_imports)]
                     use ::completion_util::__CompletionFutureIntoFutureUnsafe;
 
@@ -90,7 +107,6 @@ fn test_completion() {
         .unwrap()
         .to_string(),
         quote! {
-            #[must_use]
             pub(super) fn do_stuff<'__completion_future, '__life2, '__life1, '__life0, T: Clone>(
                 &'__life0 mut self,
                 x: &'__life1 &'__life2 T
@@ -102,7 +118,7 @@ fn test_completion() {
                 T: '__completion_future,
                 Self: '__completion_future
             {
-                ::crate::path::MustComplete::new(async move {
+                ::crate::path::__make_completion_future(async move {
                     #[allow(unused_imports)]
                     use ::crate::path::__CompletionFutureIntoFutureUnsafe;
 
@@ -114,6 +130,7 @@ fn test_completion() {
     );
 }
 
+/// Input to the `#[completion]` attribute macro.
 enum CompletionInput {
     AsyncFn(ItemFn),
     AsyncBlock(ExprAsync, Option<Token![;]>),
@@ -133,17 +150,6 @@ impl Parse for CompletionInput {
                 ))
             }
         })
-    }
-}
-
-/// Transform the input of the macro.
-fn transform_completion_input(opts: &Opts, input: CompletionInput) -> TokenStream {
-    match input {
-        CompletionInput::AsyncFn(f) => transform_async_fn(opts, f),
-        CompletionInput::AsyncBlock(block, semi) => {
-            let block = transform_async_block(opts, block);
-            quote!(#block #semi)
-        }
     }
 }
 
@@ -207,27 +213,13 @@ fn transform_async_fn(opts: &Opts, mut f: ItemFn) -> TokenStream {
     let ret_ty = quote!(impl #crate_path::CompletionFuture<Output = #ret_ty> + #ret_lifetime);
     f.sig.output = ReturnType::Type(rarrow, Box::new(Type::Verbatim(ret_ty)));
 
-    // Change the function body to be an async block and then transform it.
-    let brace_token = token::Brace {
-        span: f.block.brace_token.span,
-    };
-    f.block = Box::new(Block {
-        brace_token,
-        stmts: vec![Stmt::Expr(Expr::Verbatim(transform_async_block(
-            opts,
-            ExprAsync {
-                attrs: Vec::new(),
-                async_token: Token![async](async_span),
-                capture: Some(Token![move](async_span)),
-                block: *f.block,
-            },
-        )))],
-    });
-
-    // Add a #[must_use] attribute if there isn't one.
-    if f.attrs.iter().all(|attr| !attr.path.is_ident("must_use")) {
-        f.attrs.push(parse_quote!(#[must_use]));
-    }
+    // Transform the function body and put it in an async block
+    let stmts = transform_stmts(&opts, None, mem::take(&mut f.block.stmts));
+    f.block.stmts = vec![Stmt::Expr(Expr::Verbatim(quote_spanned! {async_span=>
+        #crate_path::__make_completion_future(async move {
+            #stmts
+        })
+    }))];
 
     f.into_token_stream()
 }
@@ -235,45 +227,68 @@ fn transform_async_fn(opts: &Opts, mut f: ItemFn) -> TokenStream {
 #[proc_macro]
 #[doc(hidden)]
 pub fn completion_async_inner(input: TokenStream1) -> TokenStream1 {
-    match completion_async_inner2(input.into(), false) {
-        Ok(tokens) => tokens,
-        Err(e) => e.to_compile_error(),
+    completion_async_inner2(input.into(), false).into()
+}
+#[proc_macro]
+#[doc(hidden)]
+pub fn completion_async_move_inner(input: TokenStream1) -> TokenStream1 {
+    completion_async_inner2(input.into(), true).into()
+}
+
+fn completion_async_inner2(input: TokenStream, capture_move: bool) -> TokenStream {
+    let (opts, stmts) = match Opts::parse_bang.parse2(input) {
+        Ok(r) => r,
+        Err(e) => return e.into_compile_error(),
+    };
+
+    let stmts = transform_stmts(&opts, None, stmts);
+    let move_token = if capture_move {
+        Some(<Token![move]>::default())
+    } else {
+        None
+    };
+    let crate_path = &opts.crate_path;
+    quote! {
+        #crate_path::__make_completion_future(async #move_token {
+            #stmts
+        })
     }
-    .into()
 }
 
 #[proc_macro]
 #[doc(hidden)]
-pub fn completion_async_move_inner(input: TokenStream1) -> TokenStream1 {
-    match completion_async_inner2(input.into(), true) {
-        Ok(tokens) => tokens,
-        Err(e) => e.to_compile_error(),
-    }
-    .into()
+pub fn completion_stream_inner(input: TokenStream1) -> TokenStream1 {
+    completion_stream_inner2(input.into()).into()
 }
 
-fn completion_async_inner2(input: TokenStream, capture_move: bool) -> parse::Result<TokenStream> {
-    let mut tokens = input.into_iter();
-    let crate_path = match tokens.next().unwrap() {
-        TokenTree::Group(group) => group.stream(),
-        _ => panic!(),
+fn completion_stream_inner2(input: TokenStream) -> TokenStream {
+    let (opts, stmts) = match Opts::parse_bang.parse2(input) {
+        Ok(r) => r,
+        Err(e) => return e.into_compile_error(),
     };
-    let opts = Opts { crate_path };
 
-    let input: TokenStream = tokens.collect();
-    let expr_async = if capture_move {
-        syn::parse2(quote!(async move { #input }))?
-    } else {
-        syn::parse2(quote!(async { #input }))?
-    };
-    Ok(transform_async_block(&opts, expr_async))
+    let yielder = Ident::new("__yielder", Span::mixed_site());
+    let stmts = transform_stmts(&opts, Some(yielder.clone()), stmts);
+
+    let crate_path = &opts.crate_path;
+    quote! {
+        #crate_path::__AsyncStream::new(move |mut #yielder| async move {
+            #stmts
+        })
+    }
 }
 
 struct Opts {
+    /// The path to `completion_util`.
     crate_path: TokenStream,
 }
-impl Parse for Opts {
-    fn parse(input: ParseStream<'_>) -> parse::Result<Self> {
+impl Opts {
+    fn parse_bang(input: ParseStream<'_>) -> parse::Result<(Self, Vec<Stmt>)> {
+        let crate_path = input.parse::<Group>().unwrap().stream();
+        let item = Block::parse_within(input)?;
+        Ok((Self { crate_path }, item))
+    }
+    fn parse_attr(input: ParseStream<'_>) -> parse::Result<Self> {
         let mut crate_path = None;
 
         while !input.is_empty() {
@@ -315,125 +330,197 @@ impl Parse for Opts {
     }
 }
 
-/// Transform async blocks like:
-///
-/// ```ignore
-/// async { fut.await }
-/// ```
-///
-/// into:
-///
-/// ```ignore
-/// MustComplete::new(async {
-///     use completion_util::__CompletionFutureIntoFutureUnsafe;
-///
-///     completion_util::__FutureOrCompletionFuture(fut).__into_future_unsafe()
-/// })
-/// ```
-fn transform_async_block(opts: &Opts, mut async_block: ExprAsync) -> TokenStream {
-    Transformer { opts }.visit_block_mut(&mut async_block.block);
-
+/// Transforms the statements inside an async block into the statements of an async block that can
+/// await completion futures and yield if it's a stream.
+fn transform_stmts(opts: &Opts, yielder: Option<Ident>, stmts: Vec<Stmt>) -> TokenStream {
     let crate_path = &opts.crate_path;
+    let mut tokens = quote! {
+        #[allow(unused_imports)]
+        use #crate_path::__CompletionFutureIntoFutureUnsafe;
+    };
+    let mut transformer = Transformer {
+        opts,
+        yielder,
+        yielded: false,
+    };
 
-    async_block.block.stmts.insert(
-        0,
-        parse_quote! {
-            #[allow(unused_imports)]
-            use #crate_path::__CompletionFutureIntoFutureUnsafe;
-        },
-    );
-
-    quote! {
-        #crate_path::MustComplete::new(#async_block)
+    for mut stmt in stmts {
+        transformer.visit_stmt_mut(&mut stmt);
+        stmt.to_tokens(&mut tokens);
     }
+
+    if let (Some(yielder), false) = (transformer.yielder, transformer.yielded) {
+        tokens = quote! {
+            if false {
+                #yielder.send(()).await;
+            }
+            #tokens
+        };
+    }
+
+    tokens
 }
 
-/// A transformer that transforms `fut.await` into `unsafe { AssertCompletes::new(fut) }.await`.
+/// Allows completion futures to be awaited and yields to be used inside streams.
 struct Transformer<'a> {
     opts: &'a Opts,
+    yielder: Option<Ident>,
+    yielded: bool,
 }
 impl<'a> VisitMut for Transformer<'a> {
-    fn visit_expr_async_mut(&mut self, _: &mut ExprAsync) {
-        // Don't do anything, we don't want to touch inner async blocks.
-    }
-    fn visit_expr_await_mut(&mut self, expr: &mut ExprAwait) {
-        self.visit_expr_mut(&mut expr.base);
+    fn visit_expr_mut(&mut self, expr: &mut Expr) {
+        match expr {
+            Expr::Async(_) | Expr::Closure(_) => {
+                // Don't do anything, we don't want to touch inner async blocks or closures.
+            }
+            Expr::Await(expr_await) => {
+                self.visit_expr_mut(&mut expr_await.base);
 
-        let base = &expr.base;
-        let crate_path = &self.opts.crate_path;
-
-        expr.base = Box::new(parse_quote! {
-            #crate_path::__FutureOrCompletionFuture(#base).__into_future_unsafe()
-        });
-    }
-    fn visit_expr_closure_mut(&mut self, _: &mut ExprClosure) {
-        // Don't do anything, we don't want to touch inner closures.
-    }
-    fn visit_expr_macro_mut(&mut self, expr: &mut ExprMacro) {
-        // Normally we don't transform the inner expressions in macros as they could for example
-        // put the inner code in a function, which would make this macro unsound. However, we
-        // transform the bodies of some macros by special-casing them.
-        const SPECIAL_MACROS: &[&str] = &[
-            "assert",
-            "assert_eq",
-            "assert_ne",
-            "dbg",
-            "debug_assert",
-            "debug_assert_eq",
-            "debug_assert_ne",
-            "eprint",
-            "eprintln",
-            "format",
-            "format_args",
-            "matches",
-            "panic",
-            "print",
-            "println",
-            "todo",
-            "unimplemented",
-            "unreachable",
-            "vec",
-            "write",
-            "writeln",
-        ];
-
-        if let Some(&macro_name) = SPECIAL_MACROS
-            .iter()
-            .find(|name| expr.mac.path.is_ident(name))
-        {
-            let succeeded = if macro_name == "matches" {
-                let res = expr.mac.parse_body_with(|tokens: ParseStream<'_>| {
-                    let expr = tokens.parse::<Expr>()?;
-                    let rest = tokens.parse::<TokenStream>()?;
-                    Ok((expr, rest))
-                });
-                if let Ok((mut scrutinee, rest)) = res {
-                    self.visit_expr_mut(&mut scrutinee);
-                    expr.mac.tokens = scrutinee.into_token_stream();
-                    expr.mac.tokens.extend(rest.into_token_stream());
-                    true
-                } else {
-                    false
-                }
-            } else {
-                let res = expr
-                    .mac
-                    .parse_body_with(<Punctuated<_, Token![,]>>::parse_terminated);
-                if let Ok(mut exprs) = res {
-                    for expr in &mut exprs {
-                        self.visit_expr_mut(expr);
-                    }
-                    expr.mac.tokens = exprs.into_token_stream();
-                    true
-                } else {
-                    false
-                }
-            };
-
-            if succeeded {
+                let base = &expr_await.base;
                 let crate_path = &self.opts.crate_path;
-                let macro_ident = Ident::new(macro_name, Span::call_site());
-                expr.mac.path = parse_quote!(#crate_path::__special_macros::#macro_ident);
+
+                *expr = Expr::Verbatim(quote! {
+                    #crate_path::__FutureOrCompletionFuture(#base).__into_future_unsafe().await
+                });
+            }
+            Expr::Macro(expr_macro) => {
+                // Normally we don't transform the inner expressions in macros as they could for
+                // example put the inner code in a function, which would make this macro unsound.
+                // However, we transform the bodies of some macros by special-casing them.
+                const SPECIAL_MACROS: &[&str] = &[
+                    "assert",
+                    "assert_eq",
+                    "assert_ne",
+                    #[cfg(feature = "std")]
+                    "dbg",
+                    "debug_assert",
+                    "debug_assert_eq",
+                    "debug_assert_ne",
+                    #[cfg(feature = "std")]
+                    "eprint",
+                    #[cfg(feature = "std")]
+                    "eprintln",
+                    #[cfg(feature = "alloc")]
+                    "format",
+                    "format_args",
+                    "matches",
+                    "panic",
+                    #[cfg(feature = "std")]
+                    "print",
+                    #[cfg(feature = "std")]
+                    "println",
+                    "todo",
+                    "unimplemented",
+                    "unreachable",
+                    #[cfg(feature = "alloc")]
+                    "vec",
+                    "write",
+                    "writeln",
+                ];
+
+                if let Some(&macro_name) = SPECIAL_MACROS
+                    .iter()
+                    .find(|name| expr_macro.mac.path.is_ident(name))
+                {
+                    let succeeded = if macro_name == "matches" {
+                        let res = expr_macro.mac.parse_body_with(|tokens: ParseStream<'_>| {
+                            let expr = tokens.parse::<Expr>()?;
+                            let rest = tokens.parse::<TokenStream>()?;
+                            Ok((expr, rest))
+                        });
+                        if let Ok((mut scrutinee, rest)) = res {
+                            self.visit_expr_mut(&mut scrutinee);
+                            expr_macro.mac.tokens = scrutinee.into_token_stream();
+                            expr_macro.mac.tokens.extend(rest.into_token_stream());
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        let res = expr_macro
+                            .mac
+                            .parse_body_with(<Punctuated<_, Token![,]>>::parse_terminated);
+                        if let Ok(mut exprs) = res {
+                            for expr in &mut exprs {
+                                self.visit_expr_mut(expr);
+                            }
+                            expr_macro.mac.tokens = exprs.into_token_stream();
+                            true
+                        } else {
+                            false
+                        }
+                    };
+
+                    if succeeded {
+                        let span = expr_macro.mac.path.get_ident().unwrap().span();
+                        let lib = if cfg!(feature = "std") {
+                            "std"
+                        } else if cfg!(feature = "alloc") && matches!(macro_name, "format" | "vec")
+                        {
+                            "alloc"
+                        } else {
+                            "core"
+                        };
+                        let lib = Ident::new(lib, span);
+                        let macro_ident = Ident::new(macro_name, span);
+
+                        expr_macro.mac.path = parse_quote!(#lib::#macro_ident);
+                    }
+                }
+            }
+            Expr::Try(expr_try) => {
+                if let Some(yielder) = &self.yielder {
+                    let crate_path = &self.opts.crate_path;
+                    let question_span = expr_try.question_token.spans[0];
+                    let base = &expr_try.expr;
+
+                    *expr = Expr::Verbatim(quote_spanned! {question_span=>
+                        match #crate_path::__Try::into_result(#base) {
+                            ::core::result::Result::Ok(val) => val,
+                            ::core::result::Result::Err(e) => {
+                                #[allow(clippy::useless_conversion)]
+                                #yielder.send(#crate_path::__Try::from_error(::core::convert::From::from(e))).await;
+                                return;
+                            }
+                        }
+                    });
+                } else {
+                    self.visit_expr_try_mut(expr_try);
+                }
+            }
+            Expr::Yield(expr_yield) => {
+                self.yielded = true;
+
+                if let Some(base) = &mut expr_yield.expr {
+                    self.visit_expr_mut(base);
+                }
+
+                let yield_span = expr_yield.yield_token.span;
+
+                let yielder = match &self.yielder {
+                    Some(yielder) => yielder,
+                    None => {
+                        let base = &expr_yield.expr;
+                        *expr = Expr::Verbatim(quote_spanned! {yield_span=> {
+                            ::core::compile_error!("`yield` can only be used inside a stream");
+                            #base
+                        }});
+                        return;
+                    }
+                };
+
+                let unit = Unit(yield_span);
+                let base: &dyn ToTokens = match &expr_yield.expr {
+                    Some(expr) => &**expr,
+                    None => &unit,
+                };
+
+                *expr = Expr::Verbatim(quote_spanned! {yield_span=>
+                    #yielder.send(#base).await
+                });
+            }
+            expr => {
+                visit_mut::visit_expr_mut(self, expr);
             }
         }
     }
@@ -443,41 +530,20 @@ impl<'a> VisitMut for Transformer<'a> {
 }
 
 #[test]
-fn test_transform_async_block() {
+fn test_transform_stmts() {
     let opts = Opts {
         crate_path: quote!(some::path),
     };
 
+    let stdlib = if cfg!(feature = "std") { "std" } else { "core" };
+    let stdlib = Ident::new(stdlib, Span::call_site());
+
     assert_eq!(
-        transform_async_block(
+        transform_stmts(
             &opts,
+            None,
             parse_quote! {
-                async move {
-                    fut1.await;
-
-                    |x| fut2.await;
-
-                    async { fut3.await };
-
-                    async fn x() {
-                        fut4.await;
-                    }
-
-                    let something = {{
-                        call_a_function(fut5.await)?
-                    }};
-
-                    ((((((((((fut6.await).await.await)))))))))
-                }
-            },
-        )
-        .to_string(),
-        quote! {
-            some::path::MustComplete::new(async move {
-                #[allow(unused_imports)]
-                use some::path::__CompletionFutureIntoFutureUnsafe;
-
-                some::path::__FutureOrCompletionFuture(fut1).__into_future_unsafe().await;
+                fut1.await;
 
                 |x| fut2.await;
 
@@ -488,28 +554,115 @@ fn test_transform_async_block() {
                 }
 
                 let something = {{
-                    call_a_function(
-                        some::path::__FutureOrCompletionFuture(fut5).__into_future_unsafe().await
-                    )?
+                    call_a_function(fut5.await)?
                 }};
 
-                (((((((((
-                    some::path::__FutureOrCompletionFuture(
-                        some::path::__FutureOrCompletionFuture((
-                            some::path::__FutureOrCompletionFuture(fut6)
-                                .__into_future_unsafe()
-                                .await
-                        ))
-                        .__into_future_unsafe()
-                        .await
-                    )
+                (yield something);
+
+                assert_eq!(fut6.await, fut7.await);
+                not_assert_eq!(fut6.await, fut7.await);
+                matches!(fut6.await, Any tokens "can" go 'here and _ should be passed verbatim!);
+
+                ((((((((((fut8.await).await.await)))))))))
+            },
+        )
+        .to_string(),
+        quote! {
+            #[allow(unused_imports)]
+            use some::path::__CompletionFutureIntoFutureUnsafe;
+
+            some::path::__FutureOrCompletionFuture(fut1).__into_future_unsafe().await;
+
+            |x| fut2.await;
+
+            async { fut3.await };
+
+            async fn x() {
+                fut4.await;
+            }
+
+            let something = {{
+                call_a_function(
+                    some::path::__FutureOrCompletionFuture(fut5).__into_future_unsafe().await
+                )?
+            }};
+
+            ({
+                ::core::compile_error!("`yield` can only be used inside a stream");
+                something
+            });
+
+            #stdlib::assert_eq!(
+                some::path::__FutureOrCompletionFuture(fut6).__into_future_unsafe().await,
+                some::path::__FutureOrCompletionFuture(fut7).__into_future_unsafe().await
+            );
+            not_assert_eq!(fut6.await, fut7.await);
+            #stdlib::matches!(
+                some::path::__FutureOrCompletionFuture(fut6).__into_future_unsafe().await,
+                Any tokens "can" go 'here and _ should be passed verbatim!
+            );
+
+            (((((((((
+                some::path::__FutureOrCompletionFuture(
+                    some::path::__FutureOrCompletionFuture((
+                        some::path::__FutureOrCompletionFuture(fut8)
+                            .__into_future_unsafe()
+                            .await
+                    ))
                     .__into_future_unsafe()
                     .await
-                )))))))))
-            })
+                )
+                .__into_future_unsafe()
+                .await
+            )))))))))
         }
         .to_string(),
     );
+
+    assert_eq!(
+        transform_stmts(
+            &opts,
+            Some(Ident::new("some_yielder", Span::call_site())),
+            parse_quote! {
+                fn inner() {
+                    yield x;
+                }
+                |_| yield x;
+
+                yield fut.await;
+
+                yield (yield (yield));
+
+                let x = something?;
+            },
+        )
+        .to_string(),
+        quote! {
+            #[allow(unused_imports)]
+            use some::path::__CompletionFutureIntoFutureUnsafe;
+
+            fn inner() {
+                yield x;
+            }
+            |_| yield x;
+
+            some_yielder.send(
+                some::path::__FutureOrCompletionFuture(fut).__into_future_unsafe().await
+            ).await;
+
+            some_yielder.send((some_yielder.send((some_yielder.send(()).await)).await)).await;
+
+            let x = match some::path::__Try::into_result(something) {
+                ::core::result::Result::Ok(val) => val,
+                ::core::result::Result::Err(e) => {
+                    #[allow(clippy::useless_conversion)]
+                    some_yielder.send(some::path::__Try::from_error(::core::convert::From::from(e))).await;
+                    return;
+                }
+            };
+        }
+        .to_string(),
+    )
 }
 
 /// Visitor that unelides the lifetimes of types and adds them to a set of generics.
@@ -564,6 +717,16 @@ impl VisitMut for HasSelf {
         if i == "Self" {
             self.0 = true;
         }
+    }
+}
+
+/// The unit type and value, `()`.
+struct Unit(Span);
+impl ToTokens for Unit {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let mut group = Group::new(Delimiter::Parenthesis, TokenStream::new());
+        group.set_span(self.0);
+        tokens.append(group);
     }
 }
 

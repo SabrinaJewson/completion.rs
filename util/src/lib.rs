@@ -4,9 +4,21 @@
 //!
 //! - `std`: Enables features that require the standard library, on by default.
 //! - `alloc`: Enables features that require allocation, on by default.
-//! - `macro`: Enables the [`completion`], [`completion_async`] and [`completion_async_move`]
-//! macros.
+//! - `macro`: Enables the [`completion`], [`completion_async`], [`completion_async_move`] and
+//! [`completion_stream`] macros.
 #![cfg_attr(not(feature = "std"), no_std)]
+#![warn(
+    clippy::pedantic,
+    clippy::wrong_pub_self_convention,
+    rust_2018_idioms,
+    missing_docs,
+    unused_qualifications,
+    missing_debug_implementations,
+    single_use_lifetimes,
+    explicit_outlives_requirements,
+    unused_lifetimes
+)]
+#![allow(clippy::module_name_repetitions, clippy::shadow_unrelated)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -23,10 +35,14 @@ use pin_project_lite::pin_project;
 pub use completion_core::{CompletionFuture, CompletionStream};
 
 pub mod future;
-pub use future::{BoxCompletionFuture, CompletionFutureExt, FutureExt, LocalBoxCompletionFuture};
+#[cfg(feature = "alloc")]
+pub use future::{BoxCompletionFuture, LocalBoxCompletionFuture};
+pub use future::{CompletionFutureExt, FutureExt};
 
 pub mod stream;
-pub use stream::{BoxCompletionStream, CompletionStreamExt, LocalBoxCompletionStream, StreamExt};
+#[cfg(feature = "alloc")]
+pub use stream::{BoxCompletionStream, LocalBoxCompletionStream};
+pub use stream::{CompletionStreamExt, StreamExt};
 
 #[cfg(feature = "macro")]
 mod macros;
@@ -41,15 +57,6 @@ pin_project! {
     ///
     /// # Examples
     ///
-    /// Box a [`CompletionFuture`]:
-    ///
-    /// ```
-    /// use completion_util::{AssertCompletes, MustComplete};
-    ///
-    /// # let completion_future = MustComplete::new(async {});
-    /// let boxed = MustComplete::new(Box::pin(unsafe { AssertCompletes::new(completion_future) }));
-    /// ```
-    ///
     /// Use a [`CompletionFuture`] in an async block:
     ///
     /// ```
@@ -60,6 +67,8 @@ pin_project! {
     ///     unsafe { AssertCompletes::new(completion_future) }.await;
     /// });
     /// ```
+    ///
+    /// Note that the [`completion_async!`] macro is a better way to achieve this.
     #[derive(Debug)]
     #[must_use = "futures and streams do nothing unless you use them"]
     pub struct AssertCompletes<T: ?Sized> {
@@ -160,6 +169,8 @@ pin_project! {
 
 impl<T> MustComplete<T> {
     /// Make sure that the given future or stream will complete.
+    ///
+    /// [`FutureExt::must_complete`] is generally preferred over calling this.
     pub fn new(inner: T) -> Self {
         Self { inner }
     }

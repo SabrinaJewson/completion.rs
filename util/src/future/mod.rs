@@ -4,7 +4,6 @@
 use alloc::boxed::Box;
 #[cfg(feature = "std")]
 use core::any::Any;
-#[cfg(feature = "std")]
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
@@ -67,14 +66,14 @@ pub trait CompletionFutureExt: CompletionFuture {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::{CompletionFutureExt, FutureExt};
+    /// use completion_util::{CompletionFutureExt, completion_async};
     ///
     /// # let some_condition = true;
     /// // These futures are different types, but boxing them makes them the same type.
     /// let fut = if some_condition {
-    ///     async { 5 }.must_complete().boxed()
+    ///     completion_async!(5).boxed()
     /// } else {
-    ///     async { 6 }.must_complete().boxed()
+    ///     completion_async!(6).boxed()
     /// };
     /// ```
     #[cfg(feature = "alloc")]
@@ -92,14 +91,14 @@ pub trait CompletionFutureExt: CompletionFuture {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::{CompletionFutureExt, FutureExt};
+    /// use completion_util::{CompletionFutureExt, completion_async};
     ///
     /// # let some_condition = true;
     /// // These futures are different types, but boxing them makes them the same type.
     /// let fut = if some_condition {
-    ///     async { 5 }.must_complete().boxed_local()
+    ///     completion_async!(5).boxed_local()
     /// } else {
-    ///     async { 6 }.must_complete().boxed_local()
+    ///     completion_async!(6).boxed_local()
     /// };
     /// ```
     #[cfg(feature = "alloc")]

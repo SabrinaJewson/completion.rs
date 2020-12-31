@@ -6,18 +6,17 @@ use completion_core::{CompletionFuture, CompletionStream};
 use futures_core::{ready, Stream};
 use pin_project_lite::pin_project;
 
-use super::CompletionStreamExt;
+use super::{CompletionStreamExt, FromCompletionStream};
 
 /// Future for [`CompletionStreamExt::next`].
 #[derive(Debug)]
-#[must_use = "futures do nothing unless you use them"]
 pub struct Next<'a, S: ?Sized> {
     pub(super) stream: &'a mut S,
 }
 
-impl<'a, S: Unpin + ?Sized> Unpin for Next<'a, S> {}
+impl<S: Unpin + ?Sized> Unpin for Next<'_, S> {}
 
-impl<'a, S: Unpin + ?Sized> CompletionFuture for Next<'a, S>
+impl<S: Unpin + ?Sized> CompletionFuture for Next<'_, S>
 where
     S: CompletionStream,
 {
@@ -28,7 +27,7 @@ where
     }
 }
 
-impl<'a, S: Unpin + ?Sized> Future for Next<'a, S>
+impl<S: Unpin + ?Sized> Future for Next<'_, S>
 where
     S: CompletionStream + Stream<Item = <S as CompletionStream>::Item>,
 {
@@ -42,7 +41,6 @@ where
 pin_project! {
     /// Future for [`CompletionStreamExt::count`].
     #[derive(Debug)]
-    #[must_use = "futures do nothing unless you use them"]
     pub struct Count<S: ?Sized> {
         pub(super) count: usize,
         #[pin]
@@ -74,7 +72,6 @@ impl<S: Stream + CompletionStream + ?Sized> Future for Count<S> {
 pin_project! {
     /// Future for [`CompletionStreamExt::last`].
     #[derive(Debug)]
-    #[must_use = "futures do nothing unless you use them"]
     pub struct Last<S: CompletionStream> {
         #[pin]
         pub(super) stream: S,
@@ -106,15 +103,14 @@ impl<S: CompletionStream + Stream<Item = <S as CompletionStream>::Item>> Future 
 
 /// Future for [`CompletionStreamExt::nth`].
 #[derive(Debug)]
-#[must_use = "futures do nothing unless you use them"]
 pub struct Nth<'a, S: ?Sized> {
     pub(super) stream: &'a mut S,
     pub(super) n: usize,
 }
 
-impl<'a, S: Unpin + ?Sized> Unpin for Nth<'a, S> {}
+impl<S: Unpin + ?Sized> Unpin for Nth<'_, S> {}
 
-impl<'a, S: Unpin + ?Sized> CompletionFuture for Nth<'a, S>
+impl<S: Unpin + ?Sized> CompletionFuture for Nth<'_, S>
 where
     S: CompletionStream,
 {
@@ -134,7 +130,7 @@ where
         }
     }
 }
-impl<'a, S: Unpin + ?Sized> Future for Nth<'a, S>
+impl<S: Unpin + ?Sized> Future for Nth<'_, S>
 where
     S: CompletionStream + Stream<Item = <S as CompletionStream>::Item>,
 {
@@ -148,7 +144,6 @@ where
 pin_project! {
     /// Future for [`CompletionStreamExt::for_each`].
     #[derive(Debug)]
-    #[must_use = "futures do nothing unless you use them"]
     pub struct ForEach<S, F> {
         #[pin]
         pub(super) stream: S,
@@ -177,6 +172,132 @@ where
     F: FnMut(<S as CompletionStream>::Item),
 {
     type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        unsafe { CompletionFuture::poll(self, cx) }
+    }
+}
+
+pin_project! {
+    /// Future for [`CompletionStreamExt::collect`].
+    #[derive(Debug)]
+    pub struct Collect<S: CompletionStream, C: FromCompletionStream<S::Item>> {
+        #[pin]
+        pub(super) stream: S,
+        pub(super) collection: Option<C::Intermediate>,
+    }
+}
+
+impl<S, C> CompletionFuture for Collect<S, C>
+where
+    S: CompletionStream,
+    C: FromCompletionStream<S::Item>,
+{
+    type Output = C;
+
+    unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut this = self.project();
+
+        let mut collection = this
+            .collection
+            .take()
+            .expect("`Collect` polled after completion");
+
+        loop {
+            match this.stream.as_mut().poll_next(cx) {
+                Poll::Ready(Some(item)) => match C::push(collection, item) {
+                    Ok(new_collection) => collection = new_collection,
+                    Err(finished) => return Poll::Ready(finished),
+                },
+                Poll::Ready(None) => return Poll::Ready(C::finalize(collection)),
+                Poll::Pending => break,
+            }
+        }
+        *this.collection = Some(collection);
+
+        Poll::Pending
+    }
+}
+impl<S, C> Future for Collect<S, C>
+where
+    S: CompletionStream,
+    C: FromCompletionStream<S::Item>,
+{
+    type Output = C;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        unsafe { CompletionFuture::poll(self, cx) }
+    }
+}
+
+/// Future for [`CompletionStreamExt::all`].
+#[derive(Debug)]
+pub struct All<'a, S: ?Sized, F> {
+    pub(super) stream: &'a mut S,
+    pub(super) f: F,
+}
+
+impl<S: Unpin + ?Sized, F> Unpin for All<'_, S, F> {}
+
+impl<S: Unpin + ?Sized, F> CompletionFuture for All<'_, S, F>
+where
+    S: CompletionStream,
+    F: FnMut(S::Item) -> bool,
+{
+    type Output = bool;
+
+    unsafe fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        while let Some(item) = ready!(self.stream.poll_next(cx)) {
+            if !(self.f)(item) {
+                return Poll::Ready(false);
+            }
+        }
+        Poll::Ready(true)
+    }
+}
+impl<S: Unpin + ?Sized, F> Future for All<'_, S, F>
+where
+    S: CompletionStream + Stream<Item = <S as CompletionStream>::Item>,
+    F: FnMut(<S as CompletionStream>::Item) -> bool,
+{
+    type Output = bool;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        unsafe { CompletionFuture::poll(self, cx) }
+    }
+}
+
+/// Future for [`CompletionStreamExt::any`].
+#[derive(Debug)]
+pub struct Any<'a, S: ?Sized, F> {
+    pub(super) stream: &'a mut S,
+    pub(super) f: F,
+}
+
+impl<S: Unpin + ?Sized, F> Unpin for Any<'_, S, F> {}
+
+impl<S: Unpin + ?Sized, F> CompletionFuture for Any<'_, S, F>
+where
+    S: CompletionStream,
+    F: FnMut(S::Item) -> bool,
+{
+    type Output = bool;
+
+    unsafe fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        while let Some(item) = ready!(self.stream.poll_next(cx)) {
+            if (self.f)(item) {
+                return Poll::Ready(true);
+            }
+        }
+        Poll::Ready(false)
+    }
+}
+impl<S: Unpin + ?Sized, F> Future for Any<'_, S, F>
+where
+    S: CompletionStream + Stream<Item = <S as CompletionStream>::Item>,
+    F: FnMut(<S as CompletionStream>::Item) -> bool,
+{
+    type Output = bool;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         unsafe { CompletionFuture::poll(self, cx) }

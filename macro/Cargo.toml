@@ -9,7 +9,11 @@ edition = "2018"
 [lib]
 proc-macro = true
 
+[features]
+std = ["alloc"]
+alloc = []
+
 [dependencies]
-syn = { version = "1.0.55", default-features = false, features = ["full", "proc-macro", "parsing", "printing", "visit-mut"] }
+syn = { version = "1.0.56", default-features = false, features = ["full", "proc-macro", "parsing", "printing", "visit-mut"] }
 quote = "1.0.8"
 proc-macro2 = "1.0.24"

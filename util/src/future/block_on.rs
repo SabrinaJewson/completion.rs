@@ -11,12 +11,14 @@ use completion_core::CompletionFuture;
 
 /// Blocks the current thread on a completion future.
 ///
+/// Requires the `std` feature.
+///
 /// # Examples
 ///
 /// ```
-/// use completion_util::{future, FutureExt};
+/// use completion_util::{completion_async, future};
 ///
-/// assert_eq!(future::block_on(async { 5 + 6 }.must_complete()), 11);
+/// assert_eq!(future::block_on(completion_async! { 5 + 6 }), 11);
 /// ```
 pub fn block_on<F: CompletionFuture>(mut future: F) -> F::Output {
     let mut fut = unsafe { Pin::new_unchecked(&mut future) };
@@ -29,15 +31,12 @@ pub fn block_on<F: CompletionFuture>(mut future: F) -> F::Output {
         let guard_storage;
         let new_pair_storage;
 
-        let (parker, waker) = match cache.try_borrow_mut() {
-            Ok(guard) => {
-                guard_storage = guard;
-                (&guard_storage.0, &guard_storage.1)
-            }
-            Err(_) => {
-                new_pair_storage = wake_pair();
-                (&new_pair_storage.0, &new_pair_storage.1)
-            }
+        let (parker, waker) = if let Ok(guard) = cache.try_borrow_mut() {
+            guard_storage = guard;
+            (&guard_storage.0, &guard_storage.1)
+        } else {
+            new_pair_storage = wake_pair();
+            (&new_pair_storage.0, &new_pair_storage.1)
         };
 
         let mut cx = Context::from_waker(waker);

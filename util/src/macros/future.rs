@@ -1,9 +1,8 @@
 use core::future::Future;
 
-#[cfg(doc)]
 use completion_core::CompletionFuture;
 
-use crate::AssertCompletes;
+use crate::{AssertCompletes, MustComplete};
 
 /// An attribute macro to generate completion `async fn`s. These async functions evaluate to a
 /// [`CompletionFuture`], and you can `.await` other [`CompletionFuture`]s inside of them.
@@ -13,12 +12,12 @@ use crate::AssertCompletes;
 /// # Examples
 ///
 /// ```
-/// use completion_util::{FutureExt, completion};
+/// use completion_util::{completion, completion_async};
 ///
 /// #[completion]
 /// async fn async_completion() -> i32 {
 ///     let fut = async { 3 };
-///     let completion_fut = async { 5 }.must_complete();
+///     let completion_fut = completion_async! { 5 };
 ///     fut.await + completion_fut.await
 /// }
 /// ```
@@ -42,15 +41,17 @@ pub use completion_macro::completion_async_inner as __completion_async_inner;
 #[doc(hidden)]
 pub use completion_macro::completion_async_move_inner as __completion_async_move_inner;
 
-/// A bang macro to generate completion `async` blocks. These async blocks evaluate to a
-/// [`CompletionFuture`], and you can `.await` other [`CompletionFuture`]s inside of them.
+/// A bang macro to generate completion `async` blocks.
+///
+/// These async blocks evaluate to a [`CompletionFuture`], and you can `.await` other
+/// [`CompletionFuture`]s inside of them.
 ///
 /// Requires the `macro` feature.
 ///
 /// # Examples
 ///
 /// ```
-/// use completion_util::{FutureExt, completion_async };
+/// use completion_util::{FutureExt, completion_async};
 ///
 /// let fut = completion_async! {
 ///     let fut = async { 3 };
@@ -60,12 +61,14 @@ pub use completion_macro::completion_async_move_inner as __completion_async_move
 /// ```
 #[macro_export]
 macro_rules! completion_async {
-    ($($tt:tt)*) => {
-        $crate::__completion_async_inner!(($crate) $($tt)*)
+    ($($stmt:stmt)*) => {
+        $crate::__completion_async_inner!(($crate) $($stmt)*)
     }
 }
-/// A bang macro to generate completion `async move` blocks. These async blocks evaluate to a
-/// [`CompletionFuture`], and you can `.await` other [`CompletionFuture`]s inside of them.
+/// A bang macro to generate completion `async move` blocks.
+///
+/// These async blocks evaluate to a [`CompletionFuture`], and you can `.await` other
+/// [`CompletionFuture`]s inside of them.
 ///
 /// Requires the `macro` feature.
 ///
@@ -82,29 +85,22 @@ macro_rules! completion_async {
 /// ```
 #[macro_export]
 macro_rules! completion_async_move {
-    ($($tt:tt)*) => {
-        $crate::__completion_async_move_inner!(($crate) $($tt)*)
+    ($($stmt:stmt)*) => {
+        $crate::__completion_async_move_inner!(($crate) $($stmt)*)
     }
 }
 
-// Re-exported special-cased macros for the macros to use.
+/// Wrapper around `MustComplete::new` to avoid displaying `MustComplete` in error messages.
 #[doc(hidden)]
-pub mod __special_macros {
-    #[cfg(feature = "alloc")]
-    pub use alloc::{format, vec};
-    #[doc(hidden)]
-    pub use core::{
-        assert, assert_eq, assert_ne, debug_assert, debug_assert_eq, debug_assert_ne, format_args,
-        matches, panic, todo, unimplemented, unreachable, write, writeln,
-    };
-    #[cfg(feature = "std")]
-    pub use std::{dbg, eprint, eprintln, print, println};
+pub fn __make_completion_future<F: Future>(future: F) -> impl CompletionFuture<Output = F::Output> {
+    MustComplete::new(future)
 }
 
 // We want to be able to `.await` both regular futures and completion futures in blocks generated
 // by the macro. To do this, we use inherent method-based specialization.
 
 #[doc(hidden)]
+#[allow(missing_debug_implementations)]
 pub struct __FutureOrCompletionFuture<F>(pub F);
 
 impl<F: Future> __FutureOrCompletionFuture<F> {

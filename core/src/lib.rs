@@ -17,6 +17,7 @@ use futures_core::Stream;
 /// A [`Future`] that must be polled to completion.
 ///
 /// All types that implement [`Future`] should also implement this.
+#[must_use = "futures do nothing unless you use them"]
 pub trait CompletionFuture {
     /// The type of value produced on completion.
     type Output;
@@ -94,6 +95,7 @@ derive_completion_future! {
 /// A [`Stream`] where each value must be polled to completion.
 ///
 /// All types that implement [`Stream`] should also implement this.
+#[must_use = "streams do nothing unless you use them"]
 pub trait CompletionStream {
     /// Values yielded by the stream.
     type Item;
@@ -104,7 +106,8 @@ pub trait CompletionStream {
     /// # Safety
     ///
     /// Unlike [`Stream::poll_next`], once this function is called the user **must not** drop or
-    /// forget the stream until it has returned [`Poll::Ready`] or panicked.
+    /// forget the stream until it has returned [`Poll::Ready`] or panicked. Note that users may
+    /// drop the stream in between finishing polling one item and starting to poll the next.
     unsafe fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>>;
 
     /// Returns the bounds on the remaining length of the stream.
