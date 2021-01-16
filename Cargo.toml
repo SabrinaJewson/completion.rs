@@ -25,6 +25,6 @@ futures-lite = "1.11.3"
 
 [features]
 default = ["std", "macro"]
-std = ["completion-macro/std", "completion-io", "memchr", "alloc"]
-alloc = ["completion-macro/alloc", "aliasable"]
+std = ["completion-io", "memchr", "alloc"]
+alloc = ["aliasable"]
 macro = ["completion-macro"]

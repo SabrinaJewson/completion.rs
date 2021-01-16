@@ -123,3 +123,17 @@ impl<F> __CompletionFutureIntoFutureUnsafe for __FutureOrCompletionFuture<F> {
         unsafe { AssertCompletes::new(self.0) }
     }
 }
+
+#[doc(hidden)]
+pub mod __special_macros {
+    pub use core::{
+        assert, assert_eq, assert_ne, debug_assert, debug_assert_eq, debug_assert_ne, format_args,
+        matches, panic, todo, unimplemented, unreachable, write, writeln,
+    };
+
+    #[cfg(feature = "alloc")]
+    pub use alloc::{format, vec};
+
+    #[cfg(feature = "std")]
+    pub use std::{dbg, eprint, eprintln, print, println};
+}

@@ -48,6 +48,11 @@ echo "========"
 cargo test --workspace --doc
 
 echo
+echo "Tests"
+echo "====="
+for_all_features cargo test --lib --tests --workspace
+
+echo
 echo "Miri"
 echo "===="
 MIRIFLAGS="-Zmiri-track-raw-pointers" for_all_features cargo +nightly miri test

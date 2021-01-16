@@ -394,28 +394,21 @@ impl<'a> VisitMut for Transformer<'a> {
                     "assert",
                     "assert_eq",
                     "assert_ne",
-                    #[cfg(feature = "std")]
                     "dbg",
                     "debug_assert",
                     "debug_assert_eq",
                     "debug_assert_ne",
-                    #[cfg(feature = "std")]
                     "eprint",
-                    #[cfg(feature = "std")]
                     "eprintln",
-                    #[cfg(feature = "alloc")]
                     "format",
                     "format_args",
                     "matches",
                     "panic",
-                    #[cfg(feature = "std")]
                     "print",
-                    #[cfg(feature = "std")]
                     "println",
                     "todo",
                     "unimplemented",
                     "unreachable",
-                    #[cfg(feature = "alloc")]
                     "vec",
                     "write",
                     "writeln",
@@ -456,18 +449,12 @@ impl<'a> VisitMut for Transformer<'a> {
 
                     if succeeded {
                         let span = expr_macro.mac.path.get_ident().unwrap().span();
-                        let lib = if cfg!(feature = "std") {
-                            "std"
-                        } else if cfg!(feature = "alloc") && matches!(macro_name, "format" | "vec")
-                        {
-                            "alloc"
-                        } else {
-                            "core"
-                        };
-                        let lib = Ident::new(lib, span);
-                        let macro_ident = Ident::new(macro_name, span);
 
-                        expr_macro.mac.path = parse_quote!(#lib::#macro_ident);
+                        let crate_path = SetSpanLocation(&self.opts.crate_path, span);
+                        let macro_ident = Ident::new(macro_name, span);
+                        let path =
+                            quote_spanned!(span=> #crate_path::__special_macros::#macro_ident);
+                        expr_macro.mac.path = syn::parse2(path).unwrap();
                     }
                 }
             }
@@ -538,9 +525,6 @@ fn test_transform_stmts() {
         crate_path: quote!(some::path),
     };
 
-    let stdlib = if cfg!(feature = "std") { "std" } else { "core" };
-    let stdlib = Ident::new(stdlib, Span::call_site());
-
     assert_eq!(
         transform_stmts(
             &opts,
@@ -595,12 +579,12 @@ fn test_transform_stmts() {
                 something
             });
 
-            #stdlib::assert_eq!(
+            some::path::__special_macros::assert_eq!(
                 some::path::__FutureOrCompletionFuture(fut6).__into_future_unsafe().await,
                 some::path::__FutureOrCompletionFuture(fut7).__into_future_unsafe().await
             );
             not_assert_eq!(fut6.await, fut7.await);
-            #stdlib::matches!(
+            some::path::__special_macros::matches!(
                 some::path::__FutureOrCompletionFuture(fut6).__into_future_unsafe().await,
                 Any tokens "can" go 'here and _ should be passed verbatim!
             );
