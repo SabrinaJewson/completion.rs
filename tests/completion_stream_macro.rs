@@ -166,13 +166,11 @@ fn nested() {
     };
     pin!(stream);
 
-    block_on(completion_async! {
-        let stream = completion_stream! {
-            while let Some(item) = stream.next().await {
-                yield item * 2;
-            }
-        };
+    let stream = completion_stream! {
+        while let Some(item) = stream.next().await {
+            yield item * 2;
+        }
+    };
 
-        assert_eq!(stream.collect::<Vec<_>>().await, [0, 2, 4]);
-    });
+    assert_eq!(block_on(stream.collect::<Vec<_>>()), [0, 2, 4]);
 }

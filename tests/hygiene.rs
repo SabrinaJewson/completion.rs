@@ -1,4 +1,4 @@
-#![cfg(feature = "macro")]
+#![cfg(all(feature = "macro", feature = "alloc"))]
 #![no_implicit_prelude]
 #![no_std]
 

@@ -1,14 +1,16 @@
-use core::cell::{Cell, UnsafeCell};
+use alloc::boxed::Box;
+use core::cell::Cell;
 use core::fmt::{self, Debug, Formatter};
 use core::future::Future;
 use core::marker::PhantomPinned;
-use core::mem::{self, MaybeUninit};
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
+use aliasable::boxed::AliasableBox;
 #[cfg(doc)]
 use completion_core::CompletionFuture;
 use completion_core::CompletionStream;
+use pin_project_lite::pin_project;
 
 #[doc(hidden)]
 pub use completion_macro::completion_stream_inner as __completion_stream_inner;
@@ -20,7 +22,7 @@ pub use completion_macro::completion_stream_inner as __completion_stream_inner;
 /// operator works in the stream if it yields an [`Option`] or [`Result`] - if an error occurs the
 /// stream will yield that single error and then exit.
 ///
-/// Requires the `macro` feature.
+/// Requires the `macro` and `alloc` features.
 ///
 /// # Examples
 ///
@@ -34,7 +36,8 @@ pub use completion_macro::completion_stream_inner as __completion_stream_inner;
 ///     }
 /// };
 ///
-/// futures_lite::pin!(stream);
+/// # use futures_lite::pin;
+/// pin!(stream);
 ///
 /// assert_eq!(stream.next().await, Some(0));
 /// assert_eq!(stream.next().await, Some(1));
@@ -108,82 +111,23 @@ impl<T, E> __Try for Result<T, E> {
     }
 }
 
-/// An asynchronous stream backed by a future.
-///
-/// This implementation is stolen from Tokio's `async-stream` crate and adapted to work on
-/// completion futures.
-#[doc(hidden)]
-pub struct __AsyncStream<T, F, Fut> {
-    state: State<T, F, Fut>,
-}
+pin_project! {
+    /// An asynchronous stream backed by a future.
+    #[doc(hidden)]
+    pub struct __AsyncStream<T, F, Fut> {
+        // The function used to create the generator.
+        f: Option<F>,
 
-impl<T: Debug, F, Fut: Debug> Debug for __AsyncStream<T, F, Fut> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("__AsyncStream")
-            .field("state", &self.state)
-            .finish()
-    }
-}
+        // The generator itself.
+        #[pin]
+        generator: Option<Fut>,
 
-/// The state of the async stream.
-enum State<T, F, Fut> {
-    /// The async stream has not yet been initialized. This holds the function that is used to
-    /// initialize it.
-    ///
-    /// This state is necessary to allow the async stream to be soundly moved before `poll_next` is
-    /// called for the first time.
-    Uninit(F),
+        // The last yielded item. The generator holds a pointer to this.
+        yielded: AliasableBox<Cell<Option<T>>>,
 
-    /// The async stream has been initialized.
-    ///
-    /// This is an `UnsafeCell` to force the immutable borrow of its contents even when we have a
-    /// mutable reference to it so that our mutable reference to it doesn't alias with the inner
-    /// generator's reference to `Init::yielded`.
-    Init(UnsafeCell<Init<T, Fut>>),
-}
-
-impl<T: Debug, F, Fut: Debug> Debug for State<T, F, Fut> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Uninit(_) => f.pad("Uninit"),
-            Self::Init(init) => f
-                .debug_tuple("Init")
-                .field(unsafe { &*init.get() })
-                .finish(),
-        }
-    }
-}
-
-/// An initialized async stream.
-struct Init<T, Fut> {
-    /// The last yielded item. The generator holds a pointer to this.
-    yielded: Cell<Option<T>>,
-
-    /// The generator itself. This is a `MaybeUninit` so that this type can be constructed with
-    /// partial initialization - through all regular usage this is initialized. It is an
-    /// `UnsafeCell` so we can get a mutable reference to it through the immutable reference
-    /// provided by the outer `UnsafeCell`.
-    generator: UnsafeCell<MaybeUninit<Fut>>,
-
-    /// Whether the generator is done.
-    done: bool,
-
-    /// As the generator holds a pointer to `yielded`, this type cannot move in memory.
-    _pinned: PhantomPinned,
-}
-
-impl<T: Debug, Fut: Debug> Debug for Init<T, Fut> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Init")
-            .field(
-                "generator",
-                // Safety: We only create a shared reference to the data, and the only time a
-                // mutable reference to this data is created is inside `poll_next` where we have a
-                // `&mut Self` anyway.
-                unsafe { &*(*self.generator.get()).as_ptr() },
-            )
-            .field("done", &self.done)
-            .finish()
+        // We want to support unboxing `yielded` in the future.
+        #[pin]
+        _pinned: PhantomPinned,
     }
 }
 
@@ -193,10 +137,29 @@ where
     Fut: Future<Output = ()>,
 {
     #[doc(hidden)]
-    pub fn new(f: F) -> __AsyncStream<T, F, Fut> {
-        __AsyncStream {
-            state: State::Uninit(f),
+    pub fn new(f: F) -> Self {
+        Self {
+            f: Some(f),
+            generator: None,
+            yielded: AliasableBox::from_unique(Box::new(Cell::new(None))),
+            _pinned: PhantomPinned,
         }
+    }
+}
+
+impl<T: Debug, F, Fut: Debug> Debug for __AsyncStream<T, F, Fut> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        struct F;
+        impl Debug for F {
+            fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+                f.write_str("<closure>")
+            }
+        }
+
+        f.debug_struct("AsyncStream")
+            .field("f", &self.f.as_ref().map(|_| F))
+            .field("generator", &self.generator)
+            .finish()
     }
 }
 
@@ -208,87 +171,31 @@ where
     type Item = T;
 
     unsafe fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let me = Pin::into_inner_unchecked(self);
+        let mut this = self.project();
 
-        let init_cell = match &mut me.state {
-            State::Uninit(_) => {
-                let old_state = mem::replace(
-                    &mut me.state,
-                    State::Init(UnsafeCell::new(Init {
-                        yielded: Cell::new(None),
-                        generator: UnsafeCell::new(MaybeUninit::uninit()),
-                        done: false,
-                        _pinned: PhantomPinned,
-                    })),
-                );
-                let f = match old_state {
-                    State::Uninit(f) => f,
-                    State::Init(_) => unreachable!(),
-                };
-                let init_cell = match &mut me.state {
-                    State::Init(init) => init,
-                    State::Uninit(_) => unreachable!(),
-                };
-                let init = unsafe_cell_get_mut(init_cell);
-                let sender = Sender {
-                    ptr: &init.yielded as *const _,
-                };
-                init.generator = UnsafeCell::new(MaybeUninit::new(f(sender)));
-                init_cell
-            }
-            State::Init(init) => {
-                if unsafe_cell_get_mut(init).done {
-                    return Poll::Ready(None);
-                }
-                init
-            }
-        };
-
-        // Immutably borrow `init`. If we mutably borrowed `init` here it would cause UB as this
-        // mutable reference to `init.yielded` would alias with the generator's.
-        let init = &*init_cell.get();
-
-        let generator = &mut *(*init.generator.get()).as_mut_ptr();
-
-        // Miri sometimes does not like this because of
-        // <https://github.com/rust-lang/rust/issues/63818>. However this is acceptable because the
-        // same unsoundness can be triggered with safe code:
-        // https://play.rust-lang.org/?version=stable&mode=debug&edition=2018&gist=43b4a4f3d7e9287c73821b27084fb179
-        // And so we know that once the safe code stops being UB (which will happen), this code will
-        // also stop being UB.
-        let res = Pin::new_unchecked(generator).poll(cx);
-
-        // Now that the generator no longer will use its pointer to `init.yielded`, we can create a
-        // mutable reference.
-        let init = unsafe_cell_get_mut(init_cell);
-
-        if res.is_ready() {
-            init.done = true;
+        if this.generator.as_mut().as_pin_mut().is_none() {
+            let sender = Sender {
+                ptr: &**this.yielded,
+            };
+            this.generator
+                .as_mut()
+                .set(Some(this.f.take().unwrap()(sender)));
         }
 
-        if let Some(yielded) = init.yielded.take() {
-            // The future is not necessarily complete at this point and yet we are telling the
-            // caller that we can be dropped.
-            //
-            // This is safe however because the macro asserts that no other non-droppable
-            // completion futures can exist in the generator at yield points.
-            return Poll::Ready(Some(yielded));
-        }
+        let res = this.generator.as_pin_mut().unwrap().poll(cx);
 
         match res {
             Poll::Ready(()) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
+            Poll::Pending => this
+                .yielded
+                .take()
+                // The future is not necessarily complete at this point and yet we are telling the
+                // caller that we can be dropped.
+                //
+                // This is safe however because the macro asserts that no other non-droppable
+                // completion futures can exist in the generator at yield points.
+                .map_or(Poll::Pending, |val| Poll::Ready(Some(val))),
         }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (
-            0,
-            match &self.state {
-                State::Init(init) if unsafe { &*init.get() }.done => Some(0),
-                _ => None,
-            },
-        )
     }
 }
 
@@ -332,9 +239,4 @@ impl Future for SendFut {
             Poll::Pending
         }
     }
-}
-
-/// A helper function to reduce usages of `unsafe`.
-fn unsafe_cell_get_mut<T: ?Sized>(cell: &mut UnsafeCell<T>) -> &mut T {
-    unsafe { &mut *cell.get() }
 }

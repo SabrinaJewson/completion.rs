@@ -56,3 +56,6 @@ echo
 echo "Rustdoc"
 echo "======="
 cargo doc --no-deps --workspace
+
+echo
+echo "Success!"
