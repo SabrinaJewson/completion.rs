@@ -45,10 +45,10 @@ pub trait CompletionStreamExt: CompletionStream {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::{CompletionStreamExt, StreamExt};
+    /// use completion::{CompletionStreamExt, StreamExt};
     /// use futures_lite::stream;
     ///
-    /// # completion_util::future::block_on(completion_util::completion_async! {
+    /// # completion::future::block_on(completion::completion_async! {
     /// let mut stream = stream::iter(0..3).must_complete();
     /// assert_eq!(stream.next().await, Some(0));
     /// assert_eq!(stream.next().await, Some(1));
@@ -68,10 +68,10 @@ pub trait CompletionStreamExt: CompletionStream {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::{CompletionStreamExt, StreamExt};
+    /// use completion::{CompletionStreamExt, StreamExt};
     /// use futures_lite::stream;
     ///
-    /// # completion_util::future::block_on(completion_util::completion_async! {
+    /// # completion::future::block_on(completion::completion_async! {
     /// let stream_1 = stream::iter(3..7).must_complete();
     /// let stream_2 = stream::iter(&[8, 2, 4]).must_complete();
     ///
@@ -94,10 +94,10 @@ pub trait CompletionStreamExt: CompletionStream {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::{CompletionStreamExt, StreamExt};
+    /// use completion::{CompletionStreamExt, StreamExt};
     /// use futures_lite::stream;
     ///
-    /// # completion_util::future::block_on(completion_util::completion_async! {
+    /// # completion::future::block_on(completion::completion_async! {
     /// assert_eq!(stream::iter(3..7).must_complete().last().await, Some(6));
     /// assert_eq!(stream::empty::<String>().must_complete().last().await, None);
     /// # });
@@ -117,10 +117,10 @@ pub trait CompletionStreamExt: CompletionStream {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::{CompletionStreamExt, StreamExt};
+    /// use completion::{CompletionStreamExt, StreamExt};
     /// use futures_lite::stream;
     ///
-    /// # completion_util::future::block_on(completion_util::completion_async! {
+    /// # completion::future::block_on(completion::completion_async! {
     /// assert_eq!(stream::iter(3..7).must_complete().nth(2).await, Some(5));
     /// assert_eq!(stream::iter(3..7).must_complete().nth(10).await, None);
     /// # });
@@ -139,10 +139,10 @@ pub trait CompletionStreamExt: CompletionStream {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::{CompletionStreamExt, StreamExt};
+    /// use completion::{CompletionStreamExt, StreamExt};
     /// use futures_lite::stream;
     ///
-    /// # completion_util::future::block_on(completion_util::completion_async! {
+    /// # completion::future::block_on(completion::completion_async! {
     /// let mut stream = stream::iter(4..6).must_complete()
     ///     .chain(stream::iter(6..10).must_complete());
     ///
@@ -172,10 +172,10 @@ pub trait CompletionStreamExt: CompletionStream {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::{CompletionStreamExt, StreamExt};
+    /// use completion::{CompletionStreamExt, StreamExt};
     /// use futures_lite::stream;
     ///
-    /// # completion_util::future::block_on(completion_util::completion_async! {
+    /// # completion::future::block_on(completion::completion_async! {
     /// let mut stream = stream::iter(0..5).must_complete().map(|x| x * 2 + 4);
     ///
     /// assert_eq!(stream.next().await, Some(4));
@@ -198,10 +198,10 @@ pub trait CompletionStreamExt: CompletionStream {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::{CompletionStreamExt, StreamExt, completion_async_move};
+    /// use completion::{CompletionStreamExt, StreamExt, completion_async_move};
     /// use futures_lite::stream;
     ///
-    /// # completion_util::future::block_on(completion_async_move! {
+    /// # completion::future::block_on(completion_async_move! {
     /// let mut stream = stream::iter(0..5)
     ///     .must_complete()
     ///     .then(|x| completion_async_move!(x * 2 + 4));
@@ -232,10 +232,10 @@ pub trait CompletionStreamExt: CompletionStream {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::{CompletionStreamExt, StreamExt};
+    /// use completion::{CompletionStreamExt, StreamExt};
     /// use futures_lite::stream;
     ///
-    /// # completion_util::future::block_on(completion_util::completion_async! {
+    /// # completion::future::block_on(completion::completion_async! {
     /// stream::iter(0..8).must_complete().for_each(|num| println!("{}", num)).await;
     /// # });
     /// ```
@@ -263,10 +263,10 @@ pub trait CompletionStreamExt: CompletionStream {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::{CompletionStreamExt, StreamExt};
+    /// use completion::{CompletionStreamExt, StreamExt};
     /// use futures_lite::stream;
     ///
-    /// # completion_util::future::block_on(completion_util::completion_async! {
+    /// # completion::future::block_on(completion::completion_async! {
     /// let mut stream = stream::once(5).must_complete().fuse();
     /// assert_eq!(stream.next().await, Some(5));
     /// assert_eq!(stream.next().await, None);
@@ -289,9 +289,9 @@ pub trait CompletionStreamExt: CompletionStream {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::{CompletionStreamExt, completion_stream};
+    /// use completion::{CompletionStreamExt, completion_stream};
     ///
-    /// # completion_util::future::block_on(completion_util::completion_async! {
+    /// # completion::future::block_on(completion::completion_async! {
     /// let stream = completion_stream! {
     ///     for i in 0..5 {
     ///         yield i;
@@ -306,9 +306,9 @@ pub trait CompletionStreamExt: CompletionStream {
     /// You can also collect into [`Result`]s or [`Option`]s.
     ///
     /// ```
-    /// use completion_util::{CompletionStreamExt, completion_stream};
+    /// use completion::{CompletionStreamExt, completion_stream};
     ///
-    /// # completion_util::future::block_on(completion_util::completion_async! {
+    /// # completion::future::block_on(completion::completion_async! {
     /// let success_stream = completion_stream! {
     ///     for i in 0..5 {
     ///         yield Some(i);
@@ -351,10 +351,10 @@ pub trait CompletionStreamExt: CompletionStream {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::{CompletionStreamExt, StreamExt};
+    /// use completion::{CompletionStreamExt, StreamExt};
     /// use futures_lite::stream;
     ///
-    /// # completion_util::future::block_on(completion_util::completion_async! {
+    /// # completion::future::block_on(completion::completion_async! {
     /// assert!(stream::iter(0..10).must_complete().all(|x| x < 10).await);
     ///
     /// assert!(!stream::iter(0..8).must_complete().all(|x| x < 7).await);
@@ -378,10 +378,10 @@ pub trait CompletionStreamExt: CompletionStream {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::{CompletionStreamExt, StreamExt};
+    /// use completion::{CompletionStreamExt, StreamExt};
     /// use futures_lite::stream;
     ///
-    /// # completion_util::future::block_on(completion_util::completion_async! {
+    /// # completion::future::block_on(completion::completion_async! {
     /// assert!(stream::iter(0..10).must_complete().any(|x| x == 9).await);
     ///
     /// assert!(!stream::iter(0..8).must_complete().all(|x| x == 9).await);
@@ -425,7 +425,7 @@ pub trait CompletionStreamExt: CompletionStream {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::{CompletionStreamExt, StreamExt};
+    /// use completion::{CompletionStreamExt, StreamExt};
     /// use futures_lite::stream;
     ///
     /// # let some_condition = true;
@@ -451,7 +451,7 @@ pub trait CompletionStreamExt: CompletionStream {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::{CompletionStreamExt, StreamExt};
+    /// use completion::{CompletionStreamExt, StreamExt};
     /// use futures_lite::stream;
     ///
     /// # let some_condition = true;
@@ -492,7 +492,7 @@ pub trait StreamExt: Stream + Sized {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::StreamExt;
+    /// use completion::StreamExt;
     /// use futures_lite::stream;
     ///
     /// let completion_stream = stream::iter(&[1, 1, 2, 3, 5]).must_complete();
@@ -510,7 +510,7 @@ impl<T: Stream> StreamExt for T {}
 /// # Examples
 ///
 /// ```
-/// use completion_util::{completion_stream, stream, StreamExt};
+/// use completion::{completion_stream, stream, StreamExt};
 ///
 /// let stream = completion_stream! {
 ///     yield '!';

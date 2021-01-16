@@ -1,5 +1,5 @@
 //! Macro to generate completion-based async functions and blocks. This crate shouldn't be used
-//! directly, instead use `completion-util`.
+//! directly, instead use `completion`.
 
 use std::mem;
 
@@ -63,11 +63,11 @@ fn test_completion() {
         .unwrap()
         .to_string(),
         quote! {
-            ::completion_util::__make_completion_future(async {
+            ::completion::__make_completion_future(async {
                 #[allow(unused_imports)]
-                use ::completion_util::__CompletionFutureIntoFutureUnsafe;
+                use ::completion::__CompletionFutureIntoFutureUnsafe;
 
-                ::completion_util::__FutureOrCompletionFuture(fut).__into_future_unsafe().await
+                ::completion::__FutureOrCompletionFuture(fut).__into_future_unsafe().await
             })
         }
         .to_string(),
@@ -84,10 +84,10 @@ fn test_completion() {
         .unwrap()
         .to_string(),
         quote! {
-            fn foo<'__completion_future>() -> impl ::completion_util::CompletionFuture<Output = ()> + '__completion_future {
-                ::completion_util::__make_completion_future(async move {
+            fn foo<'__completion_future>() -> impl ::completion::CompletionFuture<Output = ()> + '__completion_future {
+                ::completion::__make_completion_future(async move {
                     #[allow(unused_imports)]
-                    use ::completion_util::__CompletionFutureIntoFutureUnsafe;
+                    use ::completion::__CompletionFutureIntoFutureUnsafe;
 
                     |_| fut.await;
                 })
@@ -209,8 +209,10 @@ fn transform_async_fn(opts: &Opts, mut f: ItemFn) -> TokenStream {
         ReturnType::Type(rarrow, ty) => (rarrow, ty.into_token_stream()),
     };
 
-    let crate_path = &opts.crate_path;
-    let ret_ty = quote!(impl #crate_path::CompletionFuture<Output = #ret_ty> + #ret_lifetime);
+    let crate_path = SetSpanLocation(&opts.crate_path, async_span);
+    let ret_ty = quote_spanned! {async_span=>
+        impl #crate_path::CompletionFuture<Output = #ret_ty> + #ret_lifetime
+    };
     f.sig.output = ReturnType::Type(rarrow, Box::new(Type::Verbatim(ret_ty)));
 
     // Transform the function body and put it in an async block
@@ -279,7 +281,7 @@ fn completion_stream_inner2(input: TokenStream) -> TokenStream {
 }
 
 struct Opts {
-    /// The path to `completion_util`.
+    /// The path to `completion`.
     crate_path: TokenStream,
 }
 impl Opts {
@@ -325,7 +327,7 @@ impl Opts {
         }
 
         Ok(Self {
-            crate_path: crate_path.unwrap_or_else(|| quote!(::completion_util)),
+            crate_path: crate_path.unwrap_or_else(|| quote!(::completion)),
         })
     }
 }
@@ -377,9 +379,10 @@ impl<'a> VisitMut for Transformer<'a> {
                 self.visit_expr_mut(&mut expr_await.base);
 
                 let base = &expr_await.base;
-                let crate_path = &self.opts.crate_path;
+                let await_span = expr_await.await_token.span;
+                let crate_path = SetSpanLocation(&self.opts.crate_path, await_span);
 
-                *expr = Expr::Verbatim(quote! {
+                *expr = Expr::Verbatim(quote_spanned! {await_span=>
                     #crate_path::__FutureOrCompletionFuture(#base).__into_future_unsafe().await
                 });
             }
@@ -470,8 +473,8 @@ impl<'a> VisitMut for Transformer<'a> {
             }
             Expr::Try(expr_try) => {
                 if let Some(yielder) = &self.yielder {
-                    let crate_path = &self.opts.crate_path;
                     let question_span = expr_try.question_token.spans[0];
+                    let crate_path = SetSpanLocation(&self.opts.crate_path, question_span);
                     let base = &expr_try.expr;
 
                     *expr = Expr::Verbatim(quote_spanned! {question_span=>
@@ -737,4 +740,15 @@ fn lifetime_generic(lifetime: Lifetime) -> GenericParam {
         colon_token: None,
         bounds: Punctuated::new(),
     })
+}
+
+/// A type that sets the span location of a token stream.
+struct SetSpanLocation<'a>(&'a TokenStream, Span);
+impl ToTokens for SetSpanLocation<'_> {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        tokens.extend(self.0.clone().into_iter().map(|mut token| {
+            token.set_span(token.span().located_at(self.1));
+            token
+        }));
+    }
 }

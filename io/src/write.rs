@@ -10,11 +10,7 @@ use completion_core::CompletionFuture;
 /// This is an async version of [`std::io::Write`].
 ///
 /// You should not implement this trait manually, instead implement [`AsyncWriteWith`].
-// https://github.com/rust-lang/rust/issues/55058
-#[allow(single_use_lifetimes)]
 pub trait AsyncWrite: for<'a> AsyncWriteWith<'a> {}
-
-#[allow(single_use_lifetimes)]
 impl<T: for<'a> AsyncWriteWith<'a> + ?Sized> AsyncWrite for T {}
 
 /// Write bytes to a source asynchronously with a specific lifetime.
@@ -148,20 +144,20 @@ impl<'a> AsyncWriteWith<'a> for &Sink {
 }
 
 impl<'a, 's> AsyncWriteWith<'a> for &'s mut [u8] {
-    type WriteFuture = WriteSliceFuture<'a, 's>;
-    type WriteVectoredFuture = WriteVectoredSliceFuture<'a, 's>;
+    type WriteFuture = WriteSlice<'a, 's>;
+    type WriteVectoredFuture = WriteVectoredSlice<'a, 's>;
     type FlushFuture = future::Ready<Result<()>>;
 
     #[inline]
     fn write(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture {
-        WriteSliceFuture {
+        WriteSlice {
             slice: unsafe { &mut *(self as *mut _) },
             buf,
         }
     }
     #[inline]
     fn write_vectored(&'a mut self, bufs: &'a [IoSlice<'a>]) -> Self::WriteVectoredFuture {
-        WriteVectoredSliceFuture {
+        WriteVectoredSlice {
             slice: unsafe { &mut *(self as *mut _) },
             bufs,
         }
@@ -176,15 +172,15 @@ impl<'a, 's> AsyncWriteWith<'a> for &'s mut [u8] {
     }
 }
 
-/// Future produced when writing to a byte slice.
+/// Future for [`write`](AsyncWriteWith::write) on a byte slice (`&mut [u8]`).
 #[derive(Debug)]
-pub struct WriteSliceFuture<'a, 's> {
+pub struct WriteSlice<'a, 's> {
     // This is conceptually an &'a mut &'s mut [u8]. However, that would add the implicit bound
     // 's: 'a which is incompatible with AsyncWriteWith.
     slice: &'s mut &'s mut [u8],
     buf: &'a [u8],
 }
-impl Future for WriteSliceFuture<'_, '_> {
+impl Future for WriteSlice<'_, '_> {
     type Output = Result<usize>;
 
     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -192,7 +188,7 @@ impl Future for WriteSliceFuture<'_, '_> {
         Poll::Ready(std::io::Write::write(this.slice, this.buf))
     }
 }
-impl CompletionFuture for WriteSliceFuture<'_, '_> {
+impl CompletionFuture for WriteSlice<'_, '_> {
     type Output = Result<usize>;
 
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -200,15 +196,15 @@ impl CompletionFuture for WriteSliceFuture<'_, '_> {
     }
 }
 
-/// Future produced when writing to a byte slice with vectored operations.
+/// Future for [`write_vectored`](AsyncWriteWith::write_vectored) on a byte slice (`&mut [u8]`).
 #[derive(Debug)]
-pub struct WriteVectoredSliceFuture<'a, 's> {
+pub struct WriteVectoredSlice<'a, 's> {
     // This is conceptually an &'a mut &'s mut [u8]. However, that would add the implicit bound
     // 's: 'a which is incompatible with AsyncWriteWith.
     slice: &'s mut &'s mut [u8],
     bufs: &'a [IoSlice<'a>],
 }
-impl Future for WriteVectoredSliceFuture<'_, '_> {
+impl Future for WriteVectoredSlice<'_, '_> {
     type Output = Result<usize>;
 
     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -216,7 +212,7 @@ impl Future for WriteVectoredSliceFuture<'_, '_> {
         Poll::Ready(std::io::Write::write_vectored(this.slice, this.bufs))
     }
 }
-impl CompletionFuture for WriteVectoredSliceFuture<'_, '_> {
+impl CompletionFuture for WriteVectoredSlice<'_, '_> {
     type Output = Result<usize>;
 
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -225,17 +221,17 @@ impl CompletionFuture for WriteVectoredSliceFuture<'_, '_> {
 }
 
 impl<'a> AsyncWriteWith<'a> for Vec<u8> {
-    type WriteFuture = WriteVecFuture<'a>;
-    type WriteVectoredFuture = WriteVectoredVecFuture<'a>;
+    type WriteFuture = WriteVec<'a>;
+    type WriteVectoredFuture = WriteVectoredVec<'a>;
     type FlushFuture = future::Ready<Result<()>>;
 
     #[inline]
     fn write(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture {
-        WriteVecFuture { vec: self, buf }
+        WriteVec { vec: self, buf }
     }
     #[inline]
     fn write_vectored(&'a mut self, bufs: &'a [IoSlice<'a>]) -> Self::WriteVectoredFuture {
-        WriteVectoredVecFuture { vec: self, bufs }
+        WriteVectoredVec { vec: self, bufs }
     }
     #[inline]
     fn is_write_vectored(&self) -> bool {
@@ -247,13 +243,13 @@ impl<'a> AsyncWriteWith<'a> for Vec<u8> {
     }
 }
 
-/// Future produced when writing to a vector.
+/// Future for [`write`](AsyncWriteWith::write) on a [`Vec<u8>`](Vec).
 #[derive(Debug)]
-pub struct WriteVecFuture<'a> {
+pub struct WriteVec<'a> {
     vec: &'a mut Vec<u8>,
     buf: &'a [u8],
 }
-impl Future for WriteVecFuture<'_> {
+impl Future for WriteVec<'_> {
     type Output = Result<usize>;
 
     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -261,7 +257,7 @@ impl Future for WriteVecFuture<'_> {
         Poll::Ready(std::io::Write::write(this.vec, this.buf))
     }
 }
-impl CompletionFuture for WriteVecFuture<'_> {
+impl CompletionFuture for WriteVec<'_> {
     type Output = Result<usize>;
 
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -269,13 +265,13 @@ impl CompletionFuture for WriteVecFuture<'_> {
     }
 }
 
-/// Future produced when writing to a vector with vectored operations.
+/// Future for [`write_vectored`](AsyncWriteWith::write_vectored) on a [`Vec<u8>`](Vec).
 #[derive(Debug)]
-pub struct WriteVectoredVecFuture<'a> {
+pub struct WriteVectoredVec<'a> {
     vec: &'a mut Vec<u8>,
     bufs: &'a [IoSlice<'a>],
 }
-impl Future for WriteVectoredVecFuture<'_> {
+impl Future for WriteVectoredVec<'_> {
     type Output = Result<usize>;
 
     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -283,7 +279,7 @@ impl Future for WriteVectoredVecFuture<'_> {
         Poll::Ready(std::io::Write::write_vectored(this.vec, this.bufs))
     }
 }
-impl CompletionFuture for WriteVectoredVecFuture<'_> {
+impl CompletionFuture for WriteVectoredVec<'_> {
     type Output = Result<usize>;
 
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -319,7 +315,6 @@ fn test_impls_traits<'a>() {
 /// This will forward to [`write`](AsyncWriteWith::write) with the first nonempty buffer provided,
 /// or an empty one if none exists.
 #[derive(Debug)]
-#[allow(single_use_lifetimes)]
 pub struct DefaultWriteVectored<'a, T: AsyncWriteWith<'a>> {
     future: T::WriteFuture,
 }

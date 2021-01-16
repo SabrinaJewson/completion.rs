@@ -25,9 +25,9 @@ pub use completion_macro::completion_stream_inner as __completion_stream_inner;
 /// # Examples
 ///
 /// ```
-/// use completion_util::{completion_stream, CompletionStreamExt};
+/// use completion::{completion_stream, CompletionStreamExt};
 ///
-/// # completion_util::future::block_on(completion_util::completion_async! {
+/// # completion::future::block_on(completion::completion_async! {
 /// let stream = completion_stream! {
 ///     for i in 0..3 {
 ///         yield i;

@@ -142,7 +142,7 @@ impl<'a> FromCompletionStreamInner<&'a char> for String {
 macro_rules! impl_from_completion_stream_inner_for_string {
     ($($t:ty),*) => {
         $(
-            #[allow(single_use_lifetimes, unused_lifetimes)]
+            #[allow(unused_lifetimes)]
             impl<'a> FromCompletionStream<$t> for String {}
             #[allow(unused_lifetimes)]
             impl<'a> FromCompletionStreamInner<$t> for String {

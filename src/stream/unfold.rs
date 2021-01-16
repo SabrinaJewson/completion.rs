@@ -12,7 +12,7 @@ use pin_project_lite::pin_project;
 /// # Examples
 ///
 /// ```
-/// use completion_util::{CompletionStreamExt, completion_async_move, stream};
+/// use completion::{CompletionStreamExt, completion_async_move, stream};
 ///
 /// let mut stream = stream::unfold(0, |n| completion_async_move! {
 ///     if n < 3 {
@@ -26,7 +26,7 @@ use pin_project_lite::pin_project;
 ///
 /// futures_lite::pin!(stream);
 ///
-/// # completion_util::future::block_on(completion_async_move! {
+/// # completion::future::block_on(completion_async_move! {
 /// assert_eq!(stream.next().await, Some(0));
 /// assert_eq!(stream.next().await, Some(2));
 /// assert_eq!(stream.next().await, Some(4));
@@ -112,7 +112,7 @@ where
 /// # Examples
 ///
 /// ```
-/// use completion_util::{CompletionStreamExt, completion_async_move, stream};
+/// use completion::{CompletionStreamExt, completion_async_move, stream};
 ///
 /// # #[derive(Debug, PartialEq, Eq)]
 /// # struct SomeError;
@@ -126,7 +126,7 @@ where
 ///
 /// futures_lite::pin!(stream);
 ///
-/// # completion_util::future::block_on(completion_async_move! {
+/// # completion::future::block_on(completion_async_move! {
 /// assert_eq!(stream.next().await, Some(Ok(0)));
 /// assert_eq!(stream.next().await, Some(Ok(2)));
 /// assert_eq!(stream.next().await, Some(Ok(4)));

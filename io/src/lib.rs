@@ -7,7 +7,6 @@
     missing_docs,
     unused_qualifications,
     missing_debug_implementations,
-    single_use_lifetimes,
     explicit_outlives_requirements,
     unused_lifetimes
 )]
@@ -17,8 +16,9 @@
     clippy::mut_mut
 )]
 
+#[doc(no_inline)]
 pub use std::io::{
-    empty, repeat, sink, Cursor, Empty, Error, IoSlice, Repeat, Result, SeekFrom, Sink,
+    empty, repeat, sink, Cursor, Empty, Error, ErrorKind, IoSlice, Repeat, Result, SeekFrom, Sink,
 };
 
 mod read;

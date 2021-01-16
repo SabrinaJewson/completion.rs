@@ -34,8 +34,8 @@
 
 use std::borrow::Cow;
 
+use completion::{completion, completion_async, completion_async_move, future::block_on};
 use completion_core::CompletionFuture;
-use completion_util::{completion, completion_async, completion_async_move, future::block_on};
 use futures_lite::future::yield_now;
 
 #[completion]

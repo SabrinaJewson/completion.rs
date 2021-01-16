@@ -16,7 +16,7 @@ use completion_core::CompletionFuture;
 /// # Examples
 ///
 /// ```
-/// use completion_util::{completion_async, future};
+/// use completion::{completion_async, future};
 ///
 /// assert_eq!(future::block_on(completion_async! { 5 + 6 }), 11);
 /// ```
@@ -99,8 +99,49 @@ unsafe fn waker_wake_by_ref(ptr: *const ()) {
     }
 }
 unsafe fn waker_drop(ptr: *const ()) {
-    Arc::from_raw(ptr);
+    Arc::from_raw(ptr as *const WakerInner);
 }
 
 const VTABLE: RawWakerVTable =
     RawWakerVTable::new(waker_clone, waker_wake, waker_wake_by_ref, waker_drop);
+
+#[test]
+fn test_block_on() {
+    use futures_lite::future;
+
+    use crate::MustComplete;
+
+    assert_eq!(
+        block_on(MustComplete::new(async {
+            let val = 5;
+            let val_ref = &val;
+            let mut val_mut = 6;
+            let val_mut_ref = &mut val_mut;
+
+            future::yield_now().await;
+            let v1 = async { 3 }.await;
+            future::yield_now().await;
+            future::yield_now().await;
+            let v2 = async { 2 }.await;
+
+            let res = async move {
+                future::yield_now().await;
+                v1 + v2
+            }
+            .await;
+
+            // https://github.com/rust-lang/rust/issues/63818
+            #[cfg(not(miri))]
+            {
+                let _v = *val_ref;
+                *val_mut_ref += 1;
+            }
+
+            let _ = val_ref;
+            let _ = val_mut_ref;
+
+            res
+        })),
+        5
+    );
+}

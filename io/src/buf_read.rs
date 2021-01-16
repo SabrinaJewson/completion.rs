@@ -10,11 +10,7 @@ use crate::AsyncReadWith;
 /// This is an asynchronous version of [`std::io::BufRead`].
 ///
 /// You should not implement this trait manually, instead implement [`AsyncBufReadWith`].
-// https://github.com/rust-lang/rust/issues/55058
-#[allow(single_use_lifetimes)]
 pub trait AsyncBufRead: for<'a> AsyncBufReadWith<'a> {}
-
-#[allow(single_use_lifetimes)]
 impl<T: for<'a> AsyncBufReadWith<'a> + ?Sized> AsyncBufRead for T {}
 
 /// Read bytes from a source that has an internal buffer asynchronously with a specific lifetime.
@@ -24,10 +20,35 @@ pub trait AsyncBufReadWith<'a>: AsyncReadWith<'a> {
 
     /// Attempt to return the contents of the internal buffer, filling it with more data from the
     /// inner reader if it is empty.
+    ///
+    /// This function is a lower-level call. It needs to be paired with the [`consume`] method to
+    /// function properly. When calling this method, none of the contents will be "read" in the
+    /// sense that later calling read may return the same contents. As such, [`consume`] must be
+    /// called with the number of bytes that are consumed from this buffer to ensure that the bytes
+    /// are never returned twice.
+    ///
+    /// An empty buffer returned indicates that the stream has reached EOF.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an I/O error if the underlying reader was read, but returned an
+    /// error.
+    ///
+    /// [`consume`]: Self::consume
     fn fill_buf(&'a mut self) -> Self::FillBufFuture;
 
     /// Tell this buffer that `amt` bytes have been consumed from the buffer, and so should no
     /// longer be returned in calls to [`read`](AsyncReadWith::read).
+    ///
+    /// This function is a lower-level call. It needs to be paired with the [`fill_buf`] method to
+    /// function properly. This function does not perform any I/O, it simply informs this object
+    /// that some amount of its buffer, returned from [`fill_buf`], has been consumed and should no
+    /// longer be returned. As such, this function may do odd things if [`fill_buf`] isn't called
+    /// before calling it.
+    ///
+    /// The `amt` must be `<=` the number of bytes in the buffer returned by [`fill_buf`].
+    ///
+    /// [`fill_buf`]: Self::fill_buf
     fn consume(&mut self, amt: usize);
 }
 

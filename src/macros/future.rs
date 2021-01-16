@@ -12,7 +12,7 @@ use crate::{AssertCompletes, MustComplete};
 /// # Examples
 ///
 /// ```
-/// use completion_util::{completion, completion_async};
+/// use completion::{completion, completion_async};
 ///
 /// #[completion]
 /// async fn async_completion() -> i32 {
@@ -22,14 +22,14 @@ use crate::{AssertCompletes, MustComplete};
 /// }
 /// ```
 ///
-/// This macro needs to know a path to `::completion_util` in order to work. You can change it
-/// using the `crate` option:
+/// This macro needs to know a path to this crate in order to work. By default it uses
+/// `::completion`, but you can change it using the `crate` option:
 ///
 /// ```
-/// use completion_util as my_completion_util;
-/// use my_completion_util::completion;
+/// use ::completion as my_completion;
+/// use my_completion::completion;
 ///
-/// #[completion(crate = "my_completion_util")]
+/// #[completion(crate = "my_completion")]
 /// async fn async_completion(x: &i32) -> i32 {
 ///     *x
 /// }
@@ -51,7 +51,7 @@ pub use completion_macro::completion_async_move_inner as __completion_async_move
 /// # Examples
 ///
 /// ```
-/// use completion_util::{FutureExt, completion_async};
+/// use completion::{FutureExt, completion_async};
 ///
 /// let fut = completion_async! {
 ///     let fut = async { 3 };
@@ -61,8 +61,8 @@ pub use completion_macro::completion_async_move_inner as __completion_async_move
 /// ```
 #[macro_export]
 macro_rules! completion_async {
-    ($($stmt:stmt)*) => {
-        $crate::__completion_async_inner!(($crate) $($stmt)*)
+    ($($tt:tt)*) => {
+        $crate::__completion_async_inner!(($crate) $($tt)*)
     }
 }
 /// A bang macro to generate completion `async move` blocks.
@@ -75,7 +75,7 @@ macro_rules! completion_async {
 /// # Examples
 ///
 /// ```
-/// use completion_util::{FutureExt, completion_async_move};
+/// use completion::{FutureExt, completion_async_move};
 ///
 /// let fut = completion_async_move! {
 ///     let fut = async { 3 };
@@ -85,8 +85,8 @@ macro_rules! completion_async {
 /// ```
 #[macro_export]
 macro_rules! completion_async_move {
-    ($($stmt:stmt)*) => {
-        $crate::__completion_async_move_inner!(($crate) $($stmt)*)
+    ($($tt:tt)*) => {
+        $crate::__completion_async_move_inner!(($crate) $($tt)*)
     }
 }
 

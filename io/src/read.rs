@@ -15,11 +15,7 @@ use completion_core::CompletionFuture;
 /// This is an asynchronous version of [`std::io::Read`].
 ///
 /// You should not implement this trait manually, instead implement [`AsyncReadWith`].
-// https://github.com/rust-lang/rust/issues/55058
-#[allow(single_use_lifetimes)]
 pub trait AsyncRead: for<'a> AsyncReadWith<'a> {}
-
-#[allow(single_use_lifetimes)]
 impl<T: for<'a> AsyncReadWith<'a> + ?Sized> AsyncRead for T {}
 
 /// Read bytes from a source asynchronously with a specific lifetime.
@@ -61,29 +57,29 @@ impl<'a> AsyncReadWith<'a> for Empty {
 }
 
 impl<'a> AsyncReadWith<'a> for Repeat {
-    type ReadFuture = ReadRepeatFuture<'a>;
+    type ReadFuture = ReadRepeat<'a>;
 
     fn read(&'a mut self, buf: ReadBufMut<'a>) -> Self::ReadFuture {
         let mut byte = 0_u8;
         std::io::Read::read(self, std::slice::from_mut(&mut byte)).unwrap();
-        ReadRepeatFuture { byte, buf }
+        ReadRepeat { byte, buf }
     }
 }
 
-/// Future produced when reading from a [`Repeat`].
+/// Future for [`read`](AsyncReadWith::read) on a [`Repeat`].
 #[derive(Debug)]
-pub struct ReadRepeatFuture<'a> {
+pub struct ReadRepeat<'a> {
     byte: u8,
     buf: ReadBufMut<'a>,
 }
-impl CompletionFuture for ReadRepeatFuture<'_> {
+impl CompletionFuture for ReadRepeat<'_> {
     type Output = Result<()>;
 
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Future::poll(self, cx)
     }
 }
-impl Future for ReadRepeatFuture<'_> {
+impl Future for ReadRepeat<'_> {
     type Output = Result<()>;
 
     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -111,10 +107,10 @@ fn test_read_repeat() {
 }
 
 impl<'a, 's> AsyncReadWith<'a> for &'s [u8] {
-    type ReadFuture = ReadSliceFuture<'a, 's>;
+    type ReadFuture = ReadSlice<'a, 's>;
 
     fn read(&'a mut self, buf: ReadBufMut<'a>) -> Self::ReadFuture {
-        ReadSliceFuture {
+        ReadSlice {
             // Safety: We are extending the lifetime of the reference from 'a to 's. This is safe
             // because the struct it is in only lives for as long as 'a.
             slice: unsafe { &mut *(self as *mut _) },
@@ -123,15 +119,15 @@ impl<'a, 's> AsyncReadWith<'a> for &'s [u8] {
     }
 }
 
-/// Future produced when reading from a byte slice.
+/// Future for [`read`](AsyncReadWith::read) on a byte slice (`&[u8]`).
 #[derive(Debug)]
-pub struct ReadSliceFuture<'a, 's> {
+pub struct ReadSlice<'a, 's> {
     // This is conceptually an &'a mut &'s [u8]. However, that would add the implicit bound 's: 'a
     // which is incompatible with AsyncReadWith.
     slice: &'s mut &'s [u8],
     buf: ReadBufMut<'a>,
 }
-impl Future for ReadSliceFuture<'_, '_> {
+impl Future for ReadSlice<'_, '_> {
     type Output = Result<()>;
 
     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -143,7 +139,7 @@ impl Future for ReadSliceFuture<'_, '_> {
         Poll::Ready(Ok(()))
     }
 }
-impl CompletionFuture for ReadSliceFuture<'_, '_> {
+impl CompletionFuture for ReadSlice<'_, '_> {
     type Output = Result<()>;
 
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -172,26 +168,26 @@ fn test_read_slice() {
 }
 
 impl<'a, T: AsRef<[u8]>> AsyncReadWith<'a> for Cursor<T> {
-    type ReadFuture = ReadCursorFuture<'a, T>;
+    type ReadFuture = ReadCursor<'a, T>;
 
     fn read(&'a mut self, buf: ReadBufMut<'a>) -> Self::ReadFuture {
-        ReadCursorFuture { cursor: self, buf }
+        ReadCursor { cursor: self, buf }
     }
 }
 
-/// Future produced when reading from a [`Cursor`].
+/// Future for [`read`](AsyncReadWith::read) on a [`Cursor`].
 #[derive(Debug)]
-pub struct ReadCursorFuture<'a, T> {
+pub struct ReadCursor<'a, T> {
     // This is conceptually an &'a mut Cursor<T>. However, that would add the implicit bound T: 'a
     // which is incompatible with AsyncReadWith.
     cursor: *mut Cursor<T>,
     buf: ReadBufMut<'a>,
 }
 // ReadBufMut is always Send+Sync, and we hold a mutable reference to Cursor.
-unsafe impl<T: Send> Send for ReadCursorFuture<'_, T> {}
-unsafe impl<T: Sync> Sync for ReadCursorFuture<'_, T> {}
+unsafe impl<T: Send> Send for ReadCursor<'_, T> {}
+unsafe impl<T: Sync> Sync for ReadCursor<'_, T> {}
 
-impl<T: AsRef<[u8]>> Future for ReadCursorFuture<'_, T> {
+impl<T: AsRef<[u8]>> Future for ReadCursor<'_, T> {
     type Output = Result<()>;
 
     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -205,7 +201,7 @@ impl<T: AsRef<[u8]>> Future for ReadCursorFuture<'_, T> {
         Poll::Ready(Ok(()))
     }
 }
-impl<T: AsRef<[u8]>> CompletionFuture for ReadCursorFuture<'_, T> {
+impl<T: AsRef<[u8]>> CompletionFuture for ReadCursor<'_, T> {
     type Output = Result<()>;
 
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -247,6 +243,227 @@ fn test_impls_traits<'a>() {
     assert_impls::<Cursor<Vec<u8>>>();
     assert_impls::<Cursor<&'a [u8]>>();
     assert_impls::<&'a mut Cursor<&'a [u8]>>();
+}
+
+/// Macro to define the commend methods in both `ReadBuf` and `ReadBufMut`.
+macro_rules! common_read_buf_methods {
+    ($get:expr, $get_mut:expr $(,)?) => {
+        /// Get the total capacity of the buffer.
+        #[inline]
+        #[must_use]
+        pub fn capacity(&self) -> usize {
+            $get(self).data.len()
+        }
+
+        /// Get a shared reference to the filled portion of the buffer.
+        #[inline]
+        #[must_use]
+        pub fn filled(&self) -> &[u8] {
+            let buf = $get(self);
+            unsafe { &*(buf.data.get_unchecked(..buf.filled) as *const _ as *const _) }
+        }
+
+        /// Get a mutable reference to the filled portion of the buffer.
+        #[inline]
+        #[must_use]
+        pub fn filled_mut(&mut self) -> &mut [u8] {
+            let buf = unsafe { $get_mut(self) };
+            unsafe { &mut *(buf.data.get_unchecked_mut(..buf.filled) as *mut _ as *mut _) }
+        }
+
+        /// Get a shared reference to the initialized portion of the buffer.
+        ///
+        /// This includes the filled portion.
+        #[inline]
+        #[must_use]
+        pub fn initialized(&self) -> &[u8] {
+            let buf = $get(self);
+            unsafe { &*(buf.data.get_unchecked(..buf.initialized) as *const _ as *const _) }
+        }
+
+        /// Get a mutable reference to the initialized portion of the buffer.
+        ///
+        /// This includes the filled portion.
+        #[inline]
+        pub fn initialized_mut(&mut self) -> &mut [u8] {
+            let buf = unsafe { $get_mut(self) };
+            unsafe { &mut *(buf.data.get_unchecked_mut(..buf.initialized) as *mut _ as *mut _) }
+        }
+
+        /// Get a mutable reference to the unfilled part of the buffer without ensuring that it has
+        /// been fully initialized.
+        ///
+        /// # Safety
+        ///
+        /// The caller must not de-initialize portions of the buffer that have already been
+        /// initialized.
+        #[inline]
+        #[must_use]
+        pub unsafe fn unfilled_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+            let buf = $get_mut(self);
+            buf.data.get_unchecked_mut(buf.filled..)
+        }
+
+        /// Get a shared reference to the entire backing buffer.
+        #[inline]
+        #[must_use]
+        pub fn all(&self) -> &[MaybeUninit<u8>] {
+            $get(self).data
+        }
+
+        /// Get a mutable reference to the entire backing buffer.
+        ///
+        /// # Safety
+        ///
+        /// The caller must not de-initialize portions of the buffer that have already been
+        /// initialized.
+        #[inline]
+        #[must_use]
+        pub unsafe fn all_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+            $get_mut(self).data
+        }
+
+        /// Get a mutable reference to the unfilled part of the buffer, ensuring it is fully
+        ///
+        /// initialized.
+        ///
+        /// Since `ReadBuf` tracks the region of the buffer that has been initialized, this is
+        /// effectively "free" after the first use.
+        #[inline]
+        pub fn initialize_unfilled(&mut self) -> &mut [u8] {
+            self.initialize_unfilled_to(self.remaining())
+        }
+
+        /// Get a mutable reference to the first `n` bytes of the unfilled part of the buffer, ensuring
+        /// it is fully initialized.
+        ///
+        /// # Panics
+        ///
+        /// Panics if `self.remaining()` is less than `n`.
+        #[inline]
+        pub fn initialize_unfilled_to(&mut self, n: usize) -> &mut [u8] {
+            assert!(
+                self.remaining() >= n,
+                "attempted to obtain more bytes than the buffer's capacity"
+            );
+
+            let buf = unsafe { $get_mut(self) };
+            let end = buf.filled + n;
+
+            if buf.initialized < end {
+                unsafe {
+                    buf.data
+                        .get_unchecked_mut(buf.initialized)
+                        .as_mut_ptr()
+                        .write_bytes(0, end - buf.initialized);
+                }
+                buf.initialized = end;
+            }
+
+            unsafe { &mut *(buf.data.get_unchecked_mut(buf.filled..end) as *mut _ as *mut _) }
+        }
+
+        /// Get the number of bytes at the end of the slice that have not yet been filled.
+        #[inline]
+        #[must_use]
+        pub fn remaining(&self) -> usize {
+            self.capacity() - $get(self).filled
+        }
+
+        /// Clear the buffer, resetting the filled region to empty.
+        ///
+        /// The number of initialized bytes is not changed, and the contents of the buffer is not
+        /// modified.
+        #[inline]
+        pub fn clear(&mut self) {
+            unsafe { $get_mut(self) }.filled = 0;
+        }
+
+        /// Increase the size of the filled region of the buffer by `n` bytes.
+        ///
+        /// The number of initialized bytes is not changed.
+        ///
+        /// # Panics
+        ///
+        /// Panics if the filled region of the buffer would become larger than the initialized region.
+        #[inline]
+        pub fn add_filled(&mut self, n: usize) {
+            let filled = $get(&*self).filled.checked_add(n).expect(
+                "attempted to increase the filled region of the buffer beyond the integer limit",
+            );
+            self.set_filled(filled);
+        }
+
+        /// Set the size of the filled region of the buffer to `n`.
+        ///
+        /// The number of initialized bytes is not changed.
+        ///
+        /// Note that this can be used to *shrink* the filled region of the buffer in addition to
+        /// growing it (for example, by a `Read` implementation that compresses data in-place).
+        ///
+        /// # Panics
+        ///
+        /// Panics if the filled region of the buffer would become larger than the initialized region.
+        #[inline]
+        pub fn set_filled(&mut self, n: usize) {
+            let buf = unsafe { $get_mut(self) };
+            assert!(
+                n <= buf.initialized,
+                "attempted to increase the filled region of the buffer beyond initialized region"
+            );
+
+            buf.filled = n;
+        }
+
+        /// Asserts that the first `n` unfilled bytes of the buffer are initialized.
+        ///
+        /// `ReadBuf` assumes that bytes are never de-initialized, so this method does nothing when
+        /// called with fewer bytes than are already known to be initialized.
+        ///
+        /// # Safety
+        ///
+        /// The caller must ensure that the first `n` unfilled bytes of the buffer have already been
+        /// initialized.
+        #[inline]
+        pub unsafe fn assume_init(&mut self, n: usize) {
+            let buf = $get_mut(self);
+            let new = buf.filled + n;
+            if new > buf.initialized {
+                buf.initialized = n;
+            }
+        }
+
+        /// Appends data to the buffer, advancing the written position and possibly also the initialized
+        /// position.
+        ///
+        /// # Panics
+        ///
+        /// Panics if `self.remaining()` is less than `other.len()`.
+        #[inline]
+        pub fn append(&mut self, other: &[u8]) {
+            assert!(
+                self.remaining() >= other.len(),
+                "attempted to append more bytes to the buffer than it has capacity for",
+            );
+
+            let buf = unsafe { $get_mut(self) };
+
+            let end = buf.filled + other.len();
+
+            unsafe {
+                buf.data
+                    .get_unchecked_mut(buf.filled..end)
+                    .as_mut_ptr()
+                    .cast::<u8>()
+                    .copy_from_nonoverlapping(other.as_ptr(), other.len())
+            }
+
+            if buf.initialized < end {
+                buf.initialized = end;
+            }
+            buf.filled = end;
+        }
+    };
 }
 
 /// A wrapper around a byte buffer that is incrementally filled and initialized.
@@ -292,6 +509,13 @@ impl<'a> ReadBuf<'a> {
         }
     }
 
+    /// Consume the buffer, returning the entire partially initialized backing slice.
+    #[inline]
+    #[must_use]
+    pub fn into_all(self) -> &'a mut [MaybeUninit<u8>] {
+        self.data
+    }
+
     /// Consume the buffer, returning its three parts, the filled portion, the unfilled portion and
     /// the uninitialized portion.
     #[inline]
@@ -318,6 +542,12 @@ impl<'a> ReadBuf<'a> {
     pub fn into_filled(self) -> &'a mut [u8] {
         unsafe { &mut *(self.data.get_unchecked_mut(..self.filled) as *mut _ as *mut _) }
     }
+}
+
+/// These methods are also present on [`ReadBufMut`].
+#[allow(unused_unsafe)]
+impl ReadBuf<'_> {
+    common_read_buf_methods!(std::convert::identity, std::convert::identity);
 }
 
 impl Debug for ReadBuf<'_> {
@@ -369,23 +599,35 @@ unsafe impl Send for ReadBufMut<'_> {}
 unsafe impl Sync for ReadBufMut<'_> {}
 
 impl<'a> ReadBufMut<'a> {
-    /// Get a shared reference to the buffer.
+    /// Get a shared reference to the internal buffer.
     #[inline]
-    fn buf(&self) -> &ReadBuf<'a> {
+    #[must_use]
+    pub fn buf(&self) -> &ReadBuf<'a> {
         unsafe {
             // Safety: You cannot move out of a shared reference.
             self.buf.as_ref()
         }
     }
 
-    /// Get a mutable reference to the buffer.
+    /// Get a mutable reference to the internal buffer.
     ///
     /// # Safety
     ///
     /// This must not be moved out of, and the buffer's pointer to the bytes must not be changed.
     #[inline]
-    unsafe fn buf_mut(&mut self) -> &mut ReadBuf<'a> {
+    pub unsafe fn buf_mut(&mut self) -> &mut ReadBuf<'a> {
         self.buf.as_mut()
+    }
+
+    /// Convert this type to a mutable reference to the internal buffer.
+    ///
+    /// # Safety
+    ///
+    /// This must not be moved out of, and the buffer's pointer to the bytes must not be changed.
+    #[inline]
+    #[must_use]
+    pub unsafe fn into_mut(self) -> &'a mut ReadBuf<'a> {
+        &mut *self.buf.as_ptr()
     }
 
     /// Borrow the buffer, rather than consuming it.
@@ -397,196 +639,11 @@ impl<'a> ReadBufMut<'a> {
             _covariant: PhantomData,
         }
     }
+}
 
-    /// Get the total capacity of the buffer.
-    #[inline]
-    #[must_use]
-    pub fn capacity(&self) -> usize {
-        self.buf().data.len()
-    }
-
-    /// Get a shared reference to the filled portion of the buffer.
-    #[inline]
-    #[must_use]
-    pub fn filled(&self) -> &[u8] {
-        unsafe { &*(self.buf().data.get_unchecked(..self.buf().filled) as *const _ as *const _) }
-    }
-
-    /// Get a mutable reference to the filled portion of the buffer.
-    #[inline]
-    pub fn filled_mut(&mut self) -> &mut [u8] {
-        let buf = unsafe { self.buf_mut() };
-        unsafe { &mut *(buf.data.get_unchecked_mut(..buf.filled) as *mut _ as *mut _) }
-    }
-
-    /// Get a shared reference to the initialized portion of the buffer.
-    ///
-    /// This includes the filled portion.
-    #[inline]
-    #[must_use]
-    pub fn initialized(&self) -> &[u8] {
-        unsafe {
-            &*(self.buf().data.get_unchecked(..self.buf().initialized) as *const _ as *const _)
-        }
-    }
-
-    /// Get a mutable reference to the initialized portion of the buffer.
-    ///
-    /// This includes the filled portion.
-    #[inline]
-    pub fn initialized_mut(&mut self) -> &mut [u8] {
-        let buf = unsafe { self.buf_mut() };
-        unsafe { &mut *(buf.data.get_unchecked_mut(..buf.initialized) as *mut _ as *mut _) }
-    }
-
-    /// Get a mutable reference to the unfilled part of the buffer without ensuring that it has been
-    /// fully initialized.
-    ///
-    /// # Safety
-    ///
-    /// The caller must not de-initialize portions of the buffer that have already been initialized.
-    #[inline]
-    pub unsafe fn unfilled_mut(&mut self) -> &mut [MaybeUninit<u8>] {
-        let buf = self.buf_mut();
-        buf.data.get_unchecked_mut(buf.filled..)
-    }
-
-    /// Get a mutable reference to the unfilled part of the buffer, ensuring it is fully
-    /// initialized.
-    ///
-    /// Since `ReadBuf` tracks the region of the buffer that has been initialized, this is
-    /// effectively "free" after the first use.
-    #[inline]
-    pub fn initialize_unfilled(&mut self) -> &mut [u8] {
-        self.initialize_unfilled_to(self.remaining())
-    }
-
-    /// Get a mutable reference to the first `n` bytes of the unfilled part of the buffer, ensuring
-    /// it is fully initialized.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `self.remaining()` is less than `n`.
-    #[inline]
-    pub fn initialize_unfilled_to(&mut self, n: usize) -> &mut [u8] {
-        assert!(
-            self.remaining() >= n,
-            "attempted to obtain more bytes than the buffer's capacity"
-        );
-
-        let buf = unsafe { self.buf_mut() };
-        let end = buf.filled + n;
-
-        if buf.initialized < end {
-            unsafe {
-                buf.data
-                    .get_unchecked_mut(buf.initialized)
-                    .as_mut_ptr()
-                    .write_bytes(0, end - buf.initialized);
-            }
-            buf.initialized = end;
-        }
-
-        unsafe { &mut *(buf.data.get_unchecked_mut(buf.filled..end) as *mut _ as *mut _) }
-    }
-
-    /// Get the number of bytes at the end of the slice that have not yet been filled.
-    #[inline]
-    #[must_use]
-    pub fn remaining(&self) -> usize {
-        self.capacity() - self.buf().filled
-    }
-
-    /// Clear the buffer, resetting the filled region to empty.
-    ///
-    /// The number of initialized bytes is not changed, and the contents of the buffer is not
-    /// modified.
-    #[inline]
-    pub fn clear(&mut self) {
-        unsafe { self.buf_mut() }.filled = 0;
-    }
-
-    /// Increase the size of the filled region of the buffer by `n` bytes.
-    ///
-    /// The number of initialized bytes is not changed.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the filled region of the buffer would become larger than the initialized region.
-    #[inline]
-    pub fn add_filled(&mut self, n: usize) {
-        self.set_filled(self.buf().filled.checked_add(n).expect(
-            "attempted to increase the filled region of the buffer beyond the integer limit",
-        ));
-    }
-
-    /// Set the size of the filled region of the buffer to `n`.
-    ///
-    /// The number of initialized bytes is not changed.
-    ///
-    /// Note that this can be used to *shrink* the filled region of the buffer in addition to
-    /// growing it (for example, by a `Read` implementation that compresses data in-place).
-    ///
-    /// # Panics
-    ///
-    /// Panics if the filled region of the buffer would become larger than the initialized region.
-    #[inline]
-    pub fn set_filled(&mut self, n: usize) {
-        assert!(
-            n <= self.buf().initialized,
-            "attempted to increase the filled region of the buffer beyond initialized region"
-        );
-
-        unsafe { self.buf_mut() }.filled = n;
-    }
-
-    /// Asserts that the first `n` unfilled bytes of the buffer are initialized.
-    ///
-    /// `ReadBuf` assumes that bytes are never de-initialized, so this method does nothing when
-    /// called with fewer bytes than are already known to be initialized.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that the first `n` unfilled bytes of the buffer have already been
-    /// initialized.
-    #[inline]
-    pub unsafe fn assume_init(&mut self, n: usize) {
-        let new = self.buf().filled + n;
-        if new > self.buf().initialized {
-            self.buf_mut().initialized = n;
-        }
-    }
-
-    /// Appends data to the buffer, advancing the written position and possibly also the initialized
-    /// position.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `self.remaining()` is less than `other.len()`.
-    #[inline]
-    pub fn append(&mut self, other: &[u8]) {
-        assert!(
-            self.remaining() >= other.len(),
-            "attempted to append more bytes to the buffer than it has capacity for",
-        );
-
-        let buf = unsafe { self.buf_mut() };
-
-        let end = buf.filled + other.len();
-
-        unsafe {
-            buf.data
-                .get_unchecked_mut(buf.filled..end)
-                .as_mut_ptr()
-                .cast::<u8>()
-                .copy_from_nonoverlapping(other.as_ptr(), other.len())
-        }
-
-        if buf.initialized < end {
-            buf.initialized = end;
-        }
-        buf.filled = end;
-    }
+/// These methods are also present on [`ReadBuf`].
+impl ReadBufMut<'_> {
+    common_read_buf_methods!(Self::buf, Self::buf_mut,);
 }
 
 impl Debug for ReadBufMut<'_> {

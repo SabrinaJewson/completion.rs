@@ -14,7 +14,6 @@
     missing_docs,
     unused_qualifications,
     missing_debug_implementations,
-    single_use_lifetimes,
     explicit_outlives_requirements,
     unused_lifetimes
 )]
@@ -31,23 +30,25 @@ use core::task::{Context, Poll};
 use futures_core::Stream;
 use pin_project_lite::pin_project;
 
-#[doc(no_inline)]
-pub use completion_core::{CompletionFuture, CompletionStream};
-
 pub mod future;
 #[cfg(feature = "alloc")]
-pub use future::{BoxCompletionFuture, LocalBoxCompletionFuture};
-pub use future::{CompletionFutureExt, FutureExt};
+pub use self::future::{BoxCompletionFuture, LocalBoxCompletionFuture};
+#[doc(no_inline)]
+pub use self::future::{CompletionFuture, CompletionFutureExt, FutureExt};
 
 pub mod stream;
 #[cfg(feature = "alloc")]
-pub use stream::{BoxCompletionStream, LocalBoxCompletionStream};
-pub use stream::{CompletionStreamExt, StreamExt};
+pub use self::stream::{BoxCompletionStream, LocalBoxCompletionStream};
+#[doc(no_inline)]
+pub use self::stream::{CompletionStream, CompletionStreamExt, StreamExt};
 
 #[cfg(feature = "macro")]
 mod macros;
 #[cfg(feature = "macro")]
 pub use macros::*;
+
+#[cfg(feature = "std")]
+pub mod io;
 
 pin_project! {
     /// Unsafely assert that the inner future or stream will complete.
@@ -60,7 +61,7 @@ pin_project! {
     /// Use a [`CompletionFuture`] in an async block:
     ///
     /// ```
-    /// use completion_util::{AssertCompletes, MustComplete};
+    /// use completion::{AssertCompletes, MustComplete};
     ///
     /// let future = MustComplete::new(async {
     /// # let completion_future = MustComplete::new(async {});
@@ -150,7 +151,7 @@ pin_project! {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::MustComplete;
+    /// use completion::MustComplete;
     ///
     /// async fn send_request() {
     ///     /* Send a request to a server */

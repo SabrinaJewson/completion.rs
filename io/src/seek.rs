@@ -11,15 +11,10 @@ use completion_core::CompletionFuture;
 /// This is an asynchronous version of [`std::io::Seek`].
 ///
 /// You should not implement this trait manually, instead implement [`AsyncSeekWith`].
-// https://github.com/rust-lang/rust/issues/55058
-#[allow(single_use_lifetimes)]
 pub trait AsyncSeek: for<'a> AsyncSeekWith<'a> {}
-
-#[allow(single_use_lifetimes)]
 impl<T: for<'a> AsyncSeekWith<'a> + ?Sized> AsyncSeek for T {}
 
 /// A cursor which can be moved within a stream of bytes with a specific lifetime.
-#[allow(single_use_lifetimes)]
 pub trait AsyncSeekWith<'a> {
     /// Future that seeks to an offset a stream. If successful, resolves to the new position from
     /// the start of the stream.
@@ -48,11 +43,11 @@ impl<'a, S: AsyncSeekWith<'a> + ?Sized> AsyncSeekWith<'a> for Box<S> {
 }
 
 impl<'a, T: AsRef<[u8]>> AsyncSeekWith<'a> for Cursor<T> {
-    type SeekFuture = SeekCursorFuture<'a, T>;
+    type SeekFuture = SeekCursor<'a, T>;
 
     #[inline]
     fn seek(&'a mut self, pos: SeekFrom) -> Self::SeekFuture {
-        SeekCursorFuture {
+        SeekCursor {
             cursor: self,
             pos,
             _lifetime: PhantomData,
@@ -60,9 +55,9 @@ impl<'a, T: AsRef<[u8]>> AsyncSeekWith<'a> for Cursor<T> {
     }
 }
 
-/// Future produced when seeking in a [`Cursor`].
+/// Future for [`seek`](AsyncSeekWith::seek) on a [`Cursor`].
 #[derive(Debug)]
-pub struct SeekCursorFuture<'a, T> {
+pub struct SeekCursor<'a, T> {
     // This is conceptually an &'a mut Cursor<T>. However, that would add the implicit bound T: 'a
     // which is incompatible with AsyncReadWith.
     cursor: *mut Cursor<T>,
@@ -70,10 +65,10 @@ pub struct SeekCursorFuture<'a, T> {
     _lifetime: PhantomData<&'a ()>,
 }
 // SeekFrom is always Send+Sync, and we hold a mutable reference to Cursor.
-unsafe impl<T: Send> Send for SeekCursorFuture<'_, T> {}
-unsafe impl<T: Sync> Sync for SeekCursorFuture<'_, T> {}
+unsafe impl<T: Send> Send for SeekCursor<'_, T> {}
+unsafe impl<T: Sync> Sync for SeekCursor<'_, T> {}
 
-impl<T: AsRef<[u8]>> Future for SeekCursorFuture<'_, T> {
+impl<T: AsRef<[u8]>> Future for SeekCursor<'_, T> {
     type Output = Result<u64>;
 
     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -81,7 +76,7 @@ impl<T: AsRef<[u8]>> Future for SeekCursorFuture<'_, T> {
         Poll::Ready(std::io::Seek::seek(unsafe { &mut *this.cursor }, this.pos))
     }
 }
-impl<T: AsRef<[u8]>> CompletionFuture for SeekCursorFuture<'_, T> {
+impl<T: AsRef<[u8]>> CompletionFuture for SeekCursor<'_, T> {
     type Output = Result<u64>;
 
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {

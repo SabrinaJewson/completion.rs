@@ -32,8 +32,8 @@
 )]
 #![deny(clippy::pedantic)]
 
+use completion::{completion_async, completion_stream, future::block_on, CompletionStreamExt};
 use completion_core::CompletionStream;
-use completion_util::{completion_async, completion_stream, future::block_on, CompletionStreamExt};
 use futures_lite::future::yield_now;
 use futures_lite::pin;
 
@@ -159,16 +159,15 @@ fn r#return() {
 
 #[test]
 fn nested() {
+    let stream = completion_stream! {
+        for i in 0..3 {
+            yield i;
+        }
+    };
+    pin!(stream);
+
     block_on(completion_async! {
         let stream = completion_stream! {
-            let stream = completion_stream! {
-                for i in 0..3 {
-                    yield i;
-                }
-            };
-
-            pin!(stream);
-
             while let Some(item) = stream.next().await {
                 yield item * 2;
             }

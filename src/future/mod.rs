@@ -44,9 +44,9 @@ pub trait CompletionFutureExt: CompletionFuture {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::{CompletionFutureExt, completion_async};
+    /// use completion::{CompletionFutureExt, completion_async};
     ///
-    /// # completion_util::future::block_on(completion_async! {
+    /// # completion::future::block_on(completion_async! {
     /// let future = completion_async!(panic!());
     /// assert!(future.catch_unwind().await.is_err());
     /// # });
@@ -66,7 +66,7 @@ pub trait CompletionFutureExt: CompletionFuture {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::{CompletionFutureExt, completion_async};
+    /// use completion::{CompletionFutureExt, completion_async};
     ///
     /// # let some_condition = true;
     /// // These futures are different types, but boxing them makes them the same type.
@@ -91,7 +91,7 @@ pub trait CompletionFutureExt: CompletionFuture {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::{CompletionFutureExt, completion_async};
+    /// use completion::{CompletionFutureExt, completion_async};
     ///
     /// # let some_condition = true;
     /// // These futures are different types, but boxing them makes them the same type.
@@ -163,7 +163,7 @@ pub type LocalBoxCompletionFuture<'a, T> = Pin<Box<dyn CompletionFuture<Output =
 /// # Examples
 ///
 /// ```
-/// use completion_util::{future, completion_async};
+/// use completion::{future, completion_async};
 ///
 /// # future::block_on(completion_async! {
 /// assert_eq!(
@@ -253,7 +253,7 @@ pub trait FutureExt: Future + Sized {
     /// # Examples
     ///
     /// ```
-    /// use completion_util::FutureExt;
+    /// use completion::FutureExt;
     ///
     /// let completion_future = async { 19 }.must_complete();
     /// ```
