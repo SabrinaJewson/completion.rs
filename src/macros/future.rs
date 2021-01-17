@@ -26,14 +26,53 @@ use crate::{AssertCompletes, MustComplete};
 /// `::completion`, but you can change it using the `crate` option:
 ///
 /// ```
-/// use ::completion as my_completion;
-/// use my_completion::completion;
+/// mod path {
+///     pub mod to {
+///         pub extern crate completion as completion_crate;
+///     }
+/// }
+/// use path::to::completion_crate::completion;
 ///
-/// #[completion(crate = "my_completion")]
+/// #[completion(crate = path::to::completion_crate)]
 /// async fn async_completion(x: &i32) -> i32 {
 ///     *x
 /// }
 /// ```
+///
+/// You can return a boxed completion future from the function by using the `box` option. For
+/// example this can be used to implement async traits:
+///
+/// ```
+/// use completion::completion;
+///
+/// trait MyTrait {
+///     #[completion(box)]
+///     async fn run(&self);
+/// }
+///
+/// struct Item;
+/// impl MyTrait for Item {
+///     #[completion(box)]
+///     async fn run(&self) {
+///         println!("Hello!");
+///     }
+/// }
+/// ```
+///
+/// By default the `box` option will require the futures to implement `Send`. If you don't want
+/// this, you can pass in the `?Send` option:
+///
+/// ```
+/// use completion::completion;
+///
+/// trait MyTrait {
+///     #[completion(box(?Send))]
+///     async fn run(&self);
+/// }
+/// ```
+///
+/// That will allow you to hold `!Send` types across await points in the future, but will only
+/// allow it to be executed on a single-threaded executor.
 pub use completion_macro::completion;
 
 #[doc(hidden)]
@@ -136,4 +175,10 @@ pub mod __special_macros {
 
     #[cfg(feature = "std")]
     pub use std::{dbg, eprint, eprintln, print, println};
+}
+
+#[doc(hidden)]
+pub mod __reexports {
+    #[cfg(feature = "alloc")]
+    pub use alloc::boxed::Box;
 }
