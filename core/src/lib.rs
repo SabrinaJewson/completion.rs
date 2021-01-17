@@ -1,4 +1,6 @@
 //! Core traits and types for completion-based asynchronous programming.
+//!
+//! See [completion](https://crates.io/crates/completion) for utilities based on this.
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(feature = "alloc")]
@@ -27,8 +29,8 @@ pub trait CompletionFuture {
     ///
     /// # Safety
     ///
-    /// Unlike [`Future::poll`], once this function is called the user **must not** drop or forget
-    /// the future until it it has returned [`Poll::Ready`] or panicked.
+    /// Once this function is called and the type does not also implement [`Future`], the user
+    /// **must not** drop or forget the future until it it has returned [`Poll::Ready`] or panicked.
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output>;
 }
 
@@ -105,9 +107,10 @@ pub trait CompletionStream {
     ///
     /// # Safety
     ///
-    /// Unlike [`Stream::poll_next`], once this function is called the user **must not** drop or
-    /// forget the stream until it has returned [`Poll::Ready`] or panicked. Note that users may
-    /// drop the stream in between finishing polling one item and starting to poll the next.
+    /// Once this function is called and the type does not also implement [`Stream`], the user
+    /// **must not** drop or forget the stream until it has returned [`Poll::Ready`] or panicked.
+    /// Note that users may drop the stream in between finishing polling one item and starting to
+    /// poll the next.
     unsafe fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>>;
 
     /// Returns the bounds on the remaining length of the stream.

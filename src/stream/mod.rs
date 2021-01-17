@@ -132,7 +132,40 @@ pub trait CompletionStreamExt: CompletionStream {
         Nth { stream: self, n }
     }
 
-    // TODO: step_by
+    /// Create a stream starting at the same point, but stepping by the given amount each
+    /// iteration.
+    ///
+    /// # Panics
+    ///
+    /// This will panic if `step` is `0`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let a = [0, 1, 2, 3, 4, 5];
+    /// let mut stream = stream::iter(&a).must_complete().step_by(2);
+    ///
+    /// assert_eq!(stream.next().await, Some(&0));
+    /// assert_eq!(stream.next().await, Some(&2));
+    /// assert_eq!(stream.next().await, Some(&4));
+    /// assert_eq!(stream.next().await, None);
+    /// # });
+    /// ```
+    fn step_by(self, step: usize) -> StepBy<Self>
+    where
+        Self: Sized,
+    {
+        assert!(step != 0, "cannot step by zero");
+        StepBy {
+            stream: self,
+            step,
+            i: 0,
+        }
+    }
 
     /// Chain this stream with another.
     ///
@@ -246,14 +279,162 @@ pub trait CompletionStreamExt: CompletionStream {
         ForEach { stream: self, f }
     }
 
-    // TODO: filter
-    // TODO: filter_map
+    /// Keep the values in the stream for which the predicate resolves to `true`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let mut stream = stream::iter(1..=10).must_complete().filter(|n| n % 3 == 0);
+    ///
+    /// assert_eq!(stream.next().await, Some(3));
+    /// assert_eq!(stream.next().await, Some(6));
+    /// assert_eq!(stream.next().await, Some(9));
+    /// assert_eq!(stream.next().await, None);
+    /// # });
+    /// ```
+    fn filter<F>(self, f: F) -> Filter<Self, F>
+    where
+        F: FnMut(&Self::Item) -> bool,
+        Self: Sized,
+    {
+        Filter { stream: self, f }
+    }
+
+    /// Filter and map the items of the stream with a closure.
+    ///
+    /// This will yield any values for which the closure returns [`Some`] and will discard any
+    /// values for which the closure returns [`None`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let strings = ["5", "!", "2", "NaN", "6", ""];
+    /// let stream = stream::iter(&strings).must_complete();
+    /// let mut stream = stream.filter_map(|s| s.parse::<i32>().ok());
+    ///
+    /// assert_eq!(stream.next().await, Some(5));
+    /// assert_eq!(stream.next().await, Some(2));
+    /// assert_eq!(stream.next().await, Some(6));
+    /// assert_eq!(stream.next().await, None);
+    /// # });
+    /// ```
+    fn filter_map<T, F>(self, f: F) -> FilterMap<Self, F>
+    where
+        F: FnMut(Self::Item) -> Option<T>,
+        Self: Sized,
+    {
+        FilterMap { stream: self, f }
+    }
+
     // TODO: enumerate
     // TODO: peekable
-    // TODO: skip_while
-    // TODO: take_while
-    // TODO: skip
-    // TODO: take
+
+    /// Skip items while the predicate returns `true`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let stream = stream::iter("   Hello world!".chars()).must_complete();
+    /// let text: String = stream.skip_while(char::is_ascii_whitespace).collect().await;
+    /// assert_eq!(text, "Hello world!");
+    /// # });
+    /// ```
+    fn skip_while<P>(self, predicate: P) -> SkipWhile<Self, P>
+    where
+        P: FnMut(&Self::Item) -> bool,
+        Self: Sized,
+    {
+        SkipWhile {
+            stream: self,
+            skipping: true,
+            predicate,
+        }
+    }
+
+    /// Take items while the predicate returns `true`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let stream = stream::iter("Hello world!\nFoo bar".chars()).must_complete();
+    /// let text: String = stream.take_while(|&c| c != '\n').collect().await;
+    /// assert_eq!(text, "Hello world!");
+    /// # });
+    /// ```
+    fn take_while<P>(self, predicate: P) -> TakeWhile<Self, P>
+    where
+        P: FnMut(&Self::Item) -> bool,
+        Self: Sized,
+    {
+        TakeWhile {
+            stream: self,
+            taking: true,
+            predicate,
+        }
+    }
+
+    /// Skip the first `n` items in the stream.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let stream = stream::iter(0..10).must_complete();
+    /// assert_eq!(stream.skip(5).collect::<Vec<_>>().await, [5, 6, 7, 8, 9]);
+    /// # });
+    /// ```
+    fn skip(self, n: usize) -> Skip<Self>
+    where
+        Self: Sized,
+    {
+        Skip {
+            stream: self,
+            to_skip: n,
+        }
+    }
+
+    /// Takes the first `n` items of the stream. All other items will be ignored.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let stream = stream::repeat(19).must_complete();
+    /// assert_eq!(stream.take(5).collect::<Vec<_>>().await, [19, 19, 19, 19, 19]);
+    /// # });
+    /// ```
+    fn take(self, n: usize) -> Take<Self>
+    where
+        Self: Sized,
+    {
+        Take {
+            stream: self,
+            to_take: n,
+        }
+    }
+
     // TODO: scan
     // TODO: flat_map
     // TODO: flatten
@@ -340,7 +521,38 @@ pub trait CompletionStreamExt: CompletionStream {
     // TODO: partition
     // TODO: try_fold
     // TODO: try_for_each
-    // TODO: fold
+
+    /// Accumulate a value over a stream.
+    ///
+    /// `Fold` stores an accumulator that is initially set to `init`. Whenever the stream produces
+    /// a new item, it calls the function `f` with the accumulator and new item, which then returns
+    /// the new value of the accumulator. Once the stream is finished, it returns the accumulator.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, completion_stream};
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let stream = completion_stream! {
+    ///     yield 1;
+    ///     yield 8;
+    ///     yield 2;
+    /// };
+    /// assert_eq!(stream.fold(0, |acc, x| acc + x).await, 11);
+    /// # });
+    /// ```
+    fn fold<T, F>(self, init: T, f: F) -> Fold<Self, F, T>
+    where
+        F: FnMut(T, Self::Item) -> T,
+        Self: Sized,
+    {
+        Fold {
+            stream: self,
+            f,
+            accumulator: Some(init),
+        }
+    }
 
     /// Check if all the elements in the stream match a predicate.
     ///
@@ -406,8 +618,53 @@ pub trait CompletionStreamExt: CompletionStream {
     // TODO: min_by_key
     // TODO: min_by
     // TODO: unzip
-    // TODO: copied
-    // TODO: cloned
+
+    /// Create a stream that copies all of its elements.
+    ///
+    /// This is useful when you have a stream over `&T`, but you need a stream over `T`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let a = [1, 2, 3];
+    /// let v: Vec<i32> = stream::iter(&a).must_complete().copied().collect().await;
+    /// assert_eq!(v, [1, 2, 3]);
+    /// # });
+    /// ```
+    fn copied<'a, T: Copy + 'a>(self) -> Copied<Self>
+    where
+        Self: CompletionStream<Item = &'a T> + Sized,
+    {
+        Copied { stream: self }
+    }
+
+    /// Create a stream that clones all of its elements.
+    ///
+    /// This is useful when you have a stream over `&T`, but you need a stream over `T`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let a = ["1".to_owned(), "2".to_owned(), "3".to_owned()];
+    /// let v: Vec<String> = stream::iter(&a).must_complete().cloned().collect().await;
+    /// assert_eq!(v, ["1".to_owned(), "2".to_owned(), "3".to_owned()]);
+    /// # });
+    /// ```
+    fn cloned<'a, T: Clone + 'a>(self) -> Cloned<Self>
+    where
+        Self: CompletionStream<Item = &'a T> + Sized,
+    {
+        Cloned { stream: self }
+    }
+
     // TODO: cycle
     // TODO: cmp
     // TODO: partial_cmp

@@ -1,4 +1,6 @@
-//! Core types and traits for asynchronous completion-based I/O.
+//! Core traits and types for asynchronous completion-based I/O.
+//!
+//! See [completion](https://crates.io/crates/completion) for utilities based on this.
 
 #![warn(
     clippy::pedantic,

@@ -3,8 +3,9 @@ name = "completion-macro"
 version = "0.1.0"
 authors = ["KaiJewson <kai.jewson@gmail.com>"]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "Macros for `completion`. Do not use."
+repository = "https://github.com/KaiJewson/completion"
+license = "MIT OR Apache-2.0"
 
 [lib]
 proc-macro = true

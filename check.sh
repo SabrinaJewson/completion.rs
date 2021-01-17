@@ -1,5 +1,7 @@
 #!/bin/sh
 
+# This is a simple script to run all the necessary checks locally.
+
 set -e
 
 echo "Rustfmt"

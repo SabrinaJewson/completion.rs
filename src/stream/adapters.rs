@@ -1,3 +1,4 @@
+use core::cmp;
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
@@ -8,6 +9,61 @@ use pin_project_lite::pin_project;
 
 #[cfg(doc)]
 use super::CompletionStreamExt;
+
+pin_project! {
+    /// Stream for [`CompletionStreamExt::step_by`].
+    #[derive(Debug, Clone)]
+    pub struct StepBy<S> {
+        #[pin]
+        pub(super) stream: S,
+        pub(super) step: usize,
+        pub(super) i: usize,
+    }
+}
+
+impl<S: CompletionStream> CompletionStream for StepBy<S> {
+    type Item = S::Item;
+
+    unsafe fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.project();
+
+        loop {
+            match ready!(this.stream.as_mut().poll_next(cx)) {
+                Some(v) => {
+                    if *this.i == 0 {
+                        *this.i = *this.step - 1;
+                        break Poll::Ready(Some(v));
+                    } else {
+                        *this.i -= 1;
+                    }
+                }
+                None => break Poll::Ready(None),
+            }
+        }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let (low, high) = self.stream.size_hint();
+        let f = |n: usize| {
+            n.saturating_sub(self.i)
+                .checked_sub(1)
+                .map_or(0, |n| n / self.step + 1)
+        };
+        (f(low), high.map(f))
+    }
+}
+impl<S> Stream for StepBy<S>
+where
+    S: CompletionStream + Stream<Item = <S as CompletionStream>::Item>,
+{
+    type Item = <S as CompletionStream>::Item;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        unsafe { CompletionStream::poll_next(self, cx) }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        CompletionStream::size_hint(self)
+    }
+}
 
 pin_project! {
     /// Stream for [`CompletionStreamExt::chain`].
@@ -179,6 +235,289 @@ where
 }
 
 pin_project! {
+    /// Stream for [`CompletionStreamExt::filter`].
+    #[derive(Debug, Clone)]
+    pub struct Filter<S, F> {
+        #[pin]
+        pub(super) stream: S,
+        pub(super) f: F,
+    }
+}
+
+impl<S: CompletionStream, F: FnMut(&S::Item) -> bool> CompletionStream for Filter<S, F> {
+    type Item = S::Item;
+
+    unsafe fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.project();
+
+        loop {
+            match ready!(this.stream.as_mut().poll_next(cx)) {
+                Some(item) if (this.f)(&item) => break Poll::Ready(Some(item)),
+                Some(_) => {}
+                None => break Poll::Ready(None),
+            }
+        }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let (_, high) = self.stream.size_hint();
+        (0, high)
+    }
+}
+impl<S, F: FnMut(&<S as CompletionStream>::Item) -> bool> Stream for Filter<S, F>
+where
+    S: CompletionStream + Stream<Item = <S as CompletionStream>::Item>,
+{
+    type Item = <Self as CompletionStream>::Item;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        unsafe { CompletionStream::poll_next(self, cx) }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        CompletionStream::size_hint(self)
+    }
+}
+
+pin_project! {
+    /// Stream for [`CompletionStreamExt::filter_map`].
+    #[derive(Debug, Clone)]
+    pub struct FilterMap<S, F> {
+        #[pin]
+        pub(super) stream: S,
+        pub(super) f: F,
+    }
+}
+
+impl<S, F, T> CompletionStream for FilterMap<S, F>
+where
+    S: CompletionStream,
+    F: FnMut(S::Item) -> Option<T>,
+{
+    type Item = T;
+
+    unsafe fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.project();
+
+        loop {
+            match ready!(this.stream.as_mut().poll_next(cx)) {
+                Some(item) => {
+                    if let Some(mapped) = (this.f)(item) {
+                        break Poll::Ready(Some(mapped));
+                    }
+                }
+                None => break Poll::Ready(None),
+            }
+        }
+    }
+}
+
+impl<S, F, T> Stream for FilterMap<S, F>
+where
+    S: CompletionStream + Stream<Item = <S as CompletionStream>::Item>,
+    F: FnMut(<S as CompletionStream>::Item) -> Option<T>,
+{
+    type Item = <Self as CompletionStream>::Item;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        unsafe { CompletionStream::poll_next(self, cx) }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        CompletionStream::size_hint(self)
+    }
+}
+
+pin_project! {
+    /// Stream for [`CompletionStreamExt::skip_while`].
+    #[derive(Debug, Clone)]
+    pub struct SkipWhile<S, P> {
+        #[pin]
+        pub(super) stream: S,
+        pub(super) skipping: bool,
+        pub(super) predicate: P,
+    }
+}
+impl<S: CompletionStream, P> CompletionStream for SkipWhile<S, P>
+where
+    P: FnMut(&S::Item) -> bool,
+{
+    type Item = S::Item;
+
+    unsafe fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.project();
+
+        loop {
+            match ready!(this.stream.as_mut().poll_next(cx)) {
+                Some(item) => {
+                    if *this.skipping {
+                        *this.skipping = (this.predicate)(&item);
+                    }
+                    if !*this.skipping {
+                        break Poll::Ready(Some(item));
+                    }
+                }
+                None => break Poll::Ready(None),
+            }
+        }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        if self.skipping {
+            (0, self.stream.size_hint().1)
+        } else {
+            self.stream.size_hint()
+        }
+    }
+}
+impl<S, P> Stream for SkipWhile<S, P>
+where
+    S: CompletionStream + Stream<Item = <S as CompletionStream>::Item>,
+    P: FnMut(&<S as CompletionStream>::Item) -> bool,
+{
+    type Item = <Self as CompletionStream>::Item;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        unsafe { CompletionStream::poll_next(self, cx) }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        CompletionStream::size_hint(self)
+    }
+}
+
+pin_project! {
+    /// Stream for [`CompletionStreamExt::take_while`].
+    #[derive(Debug, Clone)]
+    pub struct TakeWhile<S, P> {
+        #[pin]
+        pub(super) stream: S,
+        pub(super) taking: bool,
+        pub(super) predicate: P,
+    }
+}
+impl<S: CompletionStream, P> CompletionStream for TakeWhile<S, P>
+where
+    P: FnMut(&S::Item) -> bool,
+{
+    type Item = S::Item;
+
+    unsafe fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.project();
+
+        if *this.taking {
+            match ready!(this.stream.poll_next(cx)) {
+                Some(item) => {
+                    if (this.predicate)(&item) {
+                        return Poll::Ready(Some(item));
+                    }
+                    *this.taking = false;
+                }
+                None => return Poll::Ready(None),
+            }
+        }
+        Poll::Ready(None)
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        if self.taking {
+            (0, self.stream.size_hint().1)
+        } else {
+            (0, Some(0))
+        }
+    }
+}
+impl<S, P> Stream for TakeWhile<S, P>
+where
+    S: CompletionStream + Stream<Item = <S as CompletionStream>::Item>,
+    P: FnMut(&<S as CompletionStream>::Item) -> bool,
+{
+    type Item = <Self as CompletionStream>::Item;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        unsafe { CompletionStream::poll_next(self, cx) }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        CompletionStream::size_hint(self)
+    }
+}
+
+pin_project! {
+    /// Stream for [`CompletionStreamExt::skip`].
+    #[derive(Debug, Clone)]
+    pub struct Skip<S> {
+        #[pin]
+        pub(super) stream: S,
+        pub(super) to_skip: usize,
+    }
+}
+impl<S: CompletionStream> CompletionStream for Skip<S> {
+    type Item = S::Item;
+
+    unsafe fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.project();
+        while *this.to_skip > 0 {
+            if ready!(this.stream.as_mut().poll_next(cx)).is_none() {
+                return Poll::Ready(None);
+            }
+            *this.to_skip -= 1;
+        }
+        this.stream.poll_next(cx)
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let (lower, upper) = self.stream.size_hint();
+        (
+            lower.saturating_sub(self.to_skip),
+            upper.map(|upper| upper.saturating_sub(self.to_skip)),
+        )
+    }
+}
+impl<S: CompletionStream + Stream<Item = <S as CompletionStream>::Item>> Stream for Skip<S> {
+    type Item = <Self as CompletionStream>::Item;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        unsafe { CompletionStream::poll_next(self, cx) }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        CompletionStream::size_hint(self)
+    }
+}
+
+pin_project! {
+    /// Stream for [`CompletionStreamExt::take`].
+    #[derive(Debug, Clone)]
+    pub struct Take<S> {
+        #[pin]
+        pub(super) stream: S,
+        pub(super) to_take: usize,
+    }
+}
+impl<S: CompletionStream> CompletionStream for Take<S> {
+    type Item = S::Item;
+
+    unsafe fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.project();
+
+        Poll::Ready(if *this.to_take == 0 {
+            None
+        } else {
+            let item = ready!(this.stream.poll_next(cx));
+            *this.to_take -= 1;
+            item
+        })
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        if self.to_take == 0 {
+            (0, Some(0))
+        } else {
+            let (lower, upper) = self.stream.size_hint();
+            (
+                cmp::min(lower, self.to_take),
+                Some(upper.map_or(self.to_take, |upper| cmp::min(upper, self.to_take))),
+            )
+        }
+    }
+}
+impl<S: CompletionStream + Stream<Item = <S as CompletionStream>::Item>> Stream for Take<S> {
+    type Item = <Self as CompletionStream>::Item;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        unsafe { CompletionStream::poll_next(self, cx) }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        CompletionStream::size_hint(self)
+    }
+}
+
+pin_project! {
     /// Stream for [`CompletionStreamExt::fuse`].
     #[derive(Debug, Clone)]
     pub struct Fuse<S> {
@@ -219,6 +558,82 @@ impl<S: CompletionStream> CompletionStream for Fuse<S> {
 impl<S: CompletionStream + Stream<Item = <S as CompletionStream>::Item>> Stream for Fuse<S> {
     type Item = <S as CompletionStream>::Item;
 
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        unsafe { CompletionStream::poll_next(self, cx) }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        CompletionStream::size_hint(self)
+    }
+}
+
+pin_project! {
+    /// Stream for [`CompletionStreamExt::copied`].
+    #[derive(Debug, Clone)]
+    pub struct Copied<S> {
+        #[pin]
+        pub(super) stream: S,
+    }
+}
+
+impl<'a, S, T: Copy + 'a> CompletionStream for Copied<S>
+where
+    S: CompletionStream<Item = &'a T>,
+{
+    type Item = T;
+    unsafe fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.project()
+            .stream
+            .poll_next(cx)
+            .map(<Option<S::Item>>::copied)
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.stream.size_hint()
+    }
+}
+
+impl<'a, S, T: Copy + 'a> Stream for Copied<S>
+where
+    S: CompletionStream<Item = &'a T> + Stream<Item = &'a T>,
+{
+    type Item = T;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        unsafe { CompletionStream::poll_next(self, cx) }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        CompletionStream::size_hint(self)
+    }
+}
+
+pin_project! {
+    /// Stream for [`CompletionStreamExt::cloned`].
+    #[derive(Debug, Clone)]
+    pub struct Cloned<S> {
+        #[pin]
+        pub(super) stream: S,
+    }
+}
+
+impl<'a, S, T: Clone + 'a> CompletionStream for Cloned<S>
+where
+    S: CompletionStream<Item = &'a T>,
+{
+    type Item = T;
+    unsafe fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.project()
+            .stream
+            .poll_next(cx)
+            .map(<Option<S::Item>>::cloned)
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.stream.size_hint()
+    }
+}
+
+impl<'a, S, T: Clone + 'a> Stream for Cloned<S>
+where
+    S: CompletionStream<Item = &'a T> + Stream<Item = &'a T>,
+{
+    type Item = T;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         unsafe { CompletionStream::poll_next(self, cx) }
     }

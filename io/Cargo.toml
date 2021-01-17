@@ -3,8 +3,12 @@ name = "completion-io"
 version = "0.1.0"
 authors = ["KaiJewson <kai.jewson@gmail.com>"]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "Core traits and types for asynchronous completion-based I/O"
+readme = "README.md"
+repository = "https://github.com/KaiJewson/completion"
+license = "MIT OR Apache-2.0"
+keywords = ["completion", "future", "async", "runtocompletion", "io"]
+categories = ["asynchronous", "no-std"]
 
 [dependencies]
 completion-core = { path = "../core", version = "0.1.0" }
