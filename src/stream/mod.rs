@@ -60,7 +60,7 @@ pub trait CompletionStreamExt: CompletionStream {
     where
         Self: Unpin,
     {
-        Next { stream: self }
+        Next::new(self)
     }
 
     /// Count the number of items in the stream.
@@ -83,10 +83,7 @@ pub trait CompletionStreamExt: CompletionStream {
     where
         Self: Sized,
     {
-        Count {
-            count: 0,
-            stream: self,
-        }
+        Count::new(self)
     }
 
     /// Get the last element in the stream.
@@ -106,10 +103,7 @@ pub trait CompletionStreamExt: CompletionStream {
     where
         Self: Sized,
     {
-        Last {
-            stream: self,
-            last: None,
-        }
+        Last::new(self)
     }
 
     /// Get the nth element in the stream.
@@ -129,7 +123,7 @@ pub trait CompletionStreamExt: CompletionStream {
     where
         Self: Unpin,
     {
-        Nth { stream: self, n }
+        Nth::new(self, n)
     }
 
     /// Create a stream starting at the same point, but stepping by the given amount each
@@ -159,12 +153,7 @@ pub trait CompletionStreamExt: CompletionStream {
     where
         Self: Sized,
     {
-        assert!(step != 0, "cannot step by zero");
-        StepBy {
-            stream: self,
-            step,
-            i: 0,
-        }
+        StepBy::new(self, step)
     }
 
     /// Chain this stream with another.
@@ -192,10 +181,7 @@ pub trait CompletionStreamExt: CompletionStream {
     where
         Self: Sized,
     {
-        Chain {
-            a: Some(self),
-            b: other,
-        }
+        Chain::new(self, other)
     }
 
     // TODO: zip
@@ -223,7 +209,7 @@ pub trait CompletionStreamExt: CompletionStream {
     where
         Self: Sized,
     {
-        Map { stream: self, f }
+        Map::new(self, f)
     }
 
     /// Map this stream's items with an asynchronous closure.
@@ -253,11 +239,7 @@ pub trait CompletionStreamExt: CompletionStream {
     where
         Self: Sized,
     {
-        Then {
-            stream: self,
-            fut: None,
-            f,
-        }
+        Then::new(self, f)
     }
 
     /// Call a closure on each item the stream.
@@ -276,7 +258,7 @@ pub trait CompletionStreamExt: CompletionStream {
     where
         Self: Sized,
     {
-        ForEach { stream: self, f }
+        ForEach::new(self, f)
     }
 
     /// Keep the values in the stream for which the predicate resolves to `true`.
@@ -301,7 +283,7 @@ pub trait CompletionStreamExt: CompletionStream {
         F: FnMut(&Self::Item) -> bool,
         Self: Sized,
     {
-        Filter { stream: self, f }
+        Filter::new(self, f)
     }
 
     /// Filter and map the items of the stream with a closure.
@@ -331,7 +313,7 @@ pub trait CompletionStreamExt: CompletionStream {
         F: FnMut(Self::Item) -> Option<T>,
         Self: Sized,
     {
-        FilterMap { stream: self, f }
+        FilterMap::new(self, f)
     }
 
     // TODO: enumerate
@@ -356,11 +338,7 @@ pub trait CompletionStreamExt: CompletionStream {
         P: FnMut(&Self::Item) -> bool,
         Self: Sized,
     {
-        SkipWhile {
-            stream: self,
-            skipping: true,
-            predicate,
-        }
+        SkipWhile::new(self, predicate)
     }
 
     /// Take items while the predicate returns `true`.
@@ -382,11 +360,7 @@ pub trait CompletionStreamExt: CompletionStream {
         P: FnMut(&Self::Item) -> bool,
         Self: Sized,
     {
-        TakeWhile {
-            stream: self,
-            taking: true,
-            predicate,
-        }
+        TakeWhile::new(self, predicate)
     }
 
     /// Skip the first `n` items in the stream.
@@ -406,10 +380,7 @@ pub trait CompletionStreamExt: CompletionStream {
     where
         Self: Sized,
     {
-        Skip {
-            stream: self,
-            to_skip: n,
-        }
+        Skip::new(self, n)
     }
 
     /// Takes the first `n` items of the stream. All other items will be ignored.
@@ -429,10 +400,7 @@ pub trait CompletionStreamExt: CompletionStream {
     where
         Self: Sized,
     {
-        Take {
-            stream: self,
-            to_take: n,
-        }
+        Take::new(self, n)
     }
 
     // TODO: scan
@@ -459,7 +427,7 @@ pub trait CompletionStreamExt: CompletionStream {
     where
         Self: Sized,
     {
-        Fuse { stream: Some(self) }
+        Fuse::new(self)
     }
 
     // TODO: inspect
@@ -510,12 +478,7 @@ pub trait CompletionStreamExt: CompletionStream {
     where
         Self: Sized,
     {
-        let (lower, upper) = self.size_hint();
-        let collection = C::start(lower, upper);
-        Collect {
-            stream: self,
-            collection: Some(collection),
-        }
+        Collect::new(self)
     }
 
     // TODO: partition
@@ -547,11 +510,7 @@ pub trait CompletionStreamExt: CompletionStream {
         F: FnMut(T, Self::Item) -> T,
         Self: Sized,
     {
-        Fold {
-            stream: self,
-            f,
-            accumulator: Some(init),
-        }
+        Fold::new(self, init, f)
     }
 
     /// Check if all the elements in the stream match a predicate.
@@ -578,7 +537,7 @@ pub trait CompletionStreamExt: CompletionStream {
     where
         Self: Unpin,
     {
-        All { stream: self, f }
+        All::new(self, f)
     }
 
     /// Check if any of the elements in the stream match a predicate.
@@ -605,7 +564,7 @@ pub trait CompletionStreamExt: CompletionStream {
     where
         Self: Unpin,
     {
-        Any { stream: self, f }
+        Any::new(self, f)
     }
 
     // TODO: find
@@ -639,7 +598,7 @@ pub trait CompletionStreamExt: CompletionStream {
     where
         Self: CompletionStream<Item = &'a T> + Sized,
     {
-        Copied { stream: self }
+        Copied::new(self)
     }
 
     /// Create a stream that clones all of its elements.
@@ -662,7 +621,7 @@ pub trait CompletionStreamExt: CompletionStream {
     where
         Self: CompletionStream<Item = &'a T> + Sized,
     {
-        Cloned { stream: self }
+        Cloned::new(self)
     }
 
     // TODO: cycle
