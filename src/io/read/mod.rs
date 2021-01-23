@@ -34,7 +34,7 @@ pub trait AsyncReadExt: AsyncRead {
     /// is ignored and the operation will continue.
     ///
     /// If any other read error is encountered then this function immediately returns. Any bytes
-    /// which have already been read will be appended to buf.
+    /// which have already been read will be appended to `buf`.
     ///
     /// # Examples
     ///

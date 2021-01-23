@@ -2,7 +2,7 @@
 //!
 //! A completion future is a future that must be run to completion, unlike regular futures which
 //! can be dropped and stopped at any time without the future's knowledge. This allows for more
-//! flexibility for the implementor of the future and allows APIs like `io_uring` and IOCP to be
+//! flexibility for the implementer of the future and allows APIs like `io_uring` and IOCP to be
 //! wrapped in a zero-cost way.
 //!
 //! This is based off [this RFC by Matthias247](https://github.com/Matthias247/rfcs/pull/1).

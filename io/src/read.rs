@@ -295,7 +295,7 @@ macro_rules! common_read_buf_methods {
         ///
         /// # Safety
         ///
-        /// The caller must not de-initialize portions of the buffer that have already been
+        /// The caller must not deinitialize portions of the buffer that have already been
         /// initialized.
         #[inline]
         #[must_use]
@@ -315,7 +315,7 @@ macro_rules! common_read_buf_methods {
         ///
         /// # Safety
         ///
-        /// The caller must not de-initialize portions of the buffer that have already been
+        /// The caller must not deinitialize portions of the buffer that have already been
         /// initialized.
         #[inline]
         #[must_use]
@@ -417,7 +417,7 @@ macro_rules! common_read_buf_methods {
 
         /// Asserts that the first `n` unfilled bytes of the buffer are initialized.
         ///
-        /// `ReadBuf` assumes that bytes are never de-initialized, so this method does nothing when
+        /// `ReadBuf` assumes that bytes are never deinitialized, so this method does nothing when
         /// called with fewer bytes than are already known to be initialized.
         ///
         /// # Safety

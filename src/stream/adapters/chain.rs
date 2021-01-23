@@ -5,11 +5,8 @@ use completion_core::CompletionStream;
 use futures_core::{ready, Stream};
 use pin_project_lite::pin_project;
 
-#[cfg(doc)]
-use super::super::CompletionStreamExt;
-
 pin_project! {
-    /// Stream for [`CompletionStreamExt::chain`].
+    /// Stream for [`CompletionStreamExt::chain`](crate::CompletionStreamExt::chain).
     #[derive(Debug, Clone)]
     pub struct Chain<A, B> {
         #[pin]

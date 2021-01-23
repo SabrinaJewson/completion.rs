@@ -15,7 +15,7 @@ impl<T: for<'a> AsyncWriteWith<'a> + ?Sized> AsyncWrite for T {}
 
 /// Write bytes to a source asynchronously with a specific lifetime.
 pub trait AsyncWriteWith<'a> {
-    /// The future that writes to the source, and ouputs the number of bytes written.
+    /// The future that writes to the source, and outputs the number of bytes written.
     type WriteFuture: CompletionFuture<Output = Result<usize>>;
 
     /// The future that writes a vector of buffers to the source, and outputs the number of bytes

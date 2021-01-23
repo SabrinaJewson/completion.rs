@@ -39,7 +39,7 @@ pub trait FromCompletionStreamInner<T>: Sized {
     /// This returns `Ok` to continue reading items from the stream and `Err` to finish early.
     fn push(intermediate: Self::Intermediate, item: T) -> Result<Self::Intermediate, Self>;
 
-    /// Finialize the intermediate type into `Self`.
+    /// Finalize the intermediate type into `Self`.
     fn finalize(intermediate: Self::Intermediate) -> Self;
 }
 

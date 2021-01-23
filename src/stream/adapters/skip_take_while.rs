@@ -9,11 +9,8 @@ use completion_core::CompletionStream;
 use futures_core::{ready, Stream};
 use pin_project_lite::pin_project;
 
-#[cfg(doc)]
-use super::super::CompletionStreamExt;
-
 pin_project! {
-    /// Stream for [`CompletionStreamExt::skip_while`].
+    /// Stream for [`CompletionStreamExt::skip_while`](crate::CompletionStreamExt::skip_while).
     #[derive(Debug, Clone)]
     pub struct SkipWhile<S, P> {
         #[pin]
@@ -80,7 +77,7 @@ where
 }
 
 pin_project! {
-    /// Stream for [`CompletionStreamExt::take_while`].
+    /// Stream for [`CompletionStreamExt::take_while`](crate::CompletionStreamExt::take_while).
     #[derive(Debug, Clone)]
     pub struct TakeWhile<S, P> {
         #[pin]

@@ -7,11 +7,8 @@ use completion_core::CompletionStream;
 use futures_core::{ready, Stream};
 use pin_project_lite::pin_project;
 
-#[cfg(doc)]
-use super::super::CompletionStreamExt;
-
 pin_project! {
-    /// Stream for [`CompletionStreamExt::filter`].
+    /// Stream for [`CompletionStreamExt::filter`](crate::CompletionStreamExt::filter).
     #[derive(Debug, Clone)]
     pub struct Filter<S, F> {
         #[pin]
@@ -60,7 +57,7 @@ where
 }
 
 pin_project! {
-    /// Stream for [`CompletionStreamExt::filter_map`].
+    /// Stream for [`CompletionStreamExt::filter_map`](crate::CompletionStreamExt::filter_map).
     #[derive(Debug, Clone)]
     pub struct FilterMap<S, F> {
         #[pin]

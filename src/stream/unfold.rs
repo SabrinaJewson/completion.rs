@@ -107,7 +107,7 @@ where
     }
 }
 
-/// Create a fallible straem from a seed value and a fallible async closure.
+/// Create a fallible stream from a seed value and a fallible async closure.
 ///
 /// # Examples
 ///

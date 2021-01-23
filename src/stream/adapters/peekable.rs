@@ -8,11 +8,8 @@ use completion_core::{CompletionFuture, CompletionStream};
 use futures_core::{ready, Stream};
 use pin_project_lite::pin_project;
 
-#[cfg(doc)]
-use super::super::CompletionStreamExt;
-
 pin_project! {
-    /// Stream for [`CompletionStreamExt::peekable`].
+    /// Stream for [`CompletionStreamExt::peekable`](crate::CompletionStreamExt::peekable).
     #[derive(Debug, Clone)]
     pub struct Peekable<S: CompletionStream> {
         #[pin]

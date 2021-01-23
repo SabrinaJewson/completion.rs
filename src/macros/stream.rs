@@ -17,7 +17,7 @@ pub use completion_macro::completion_stream_inner as __completion_stream_inner;
 
 /// A bang macro to generate completion async streams.
 ///
-/// These async streams evalute to a [`CompletionStream`], and you can `.await`
+/// These async streams evaluate to a [`CompletionStream`], and you can `.await`
 /// [`CompletionFuture`]s inside of them. You can return values using a `yield` expression. The `?`
 /// operator works in the stream if it yields an [`Option`] or [`Result`] - if an error occurs the
 /// stream will yield that single error and then exit.

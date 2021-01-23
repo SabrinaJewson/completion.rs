@@ -5,11 +5,8 @@ use completion_core::CompletionStream;
 use futures_core::{ready, Stream};
 use pin_project_lite::pin_project;
 
-#[cfg(doc)]
-use super::super::CompletionStreamExt;
-
 pin_project! {
-    /// Stream for [`CompletionStreamExt::step_by`].
+    /// Stream for [`CompletionStreamExt::step_by`](crate::CompletionStreamExt::step_by).
     #[derive(Debug, Clone)]
     pub struct StepBy<S> {
         #[pin]

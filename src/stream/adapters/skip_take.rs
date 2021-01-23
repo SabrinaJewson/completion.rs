@@ -8,11 +8,8 @@ use completion_core::CompletionStream;
 use futures_core::{ready, Stream};
 use pin_project_lite::pin_project;
 
-#[cfg(doc)]
-use super::super::CompletionStreamExt;
-
 pin_project! {
-    /// Stream for [`CompletionStreamExt::skip`].
+    /// Stream for [`CompletionStreamExt::skip`](crate::CompletionStreamExt::skip).
     #[derive(Debug, Clone)]
     pub struct Skip<S> {
         #[pin]
@@ -60,7 +57,7 @@ impl<S: CompletionStream + Stream<Item = <S as CompletionStream>::Item>> Stream 
 }
 
 pin_project! {
-    /// Stream for [`CompletionStreamExt::take`].
+    /// Stream for [`CompletionStreamExt::take`](crate::CompletionStreamExt::take).
     #[derive(Debug, Clone)]
     pub struct Take<S> {
         #[pin]

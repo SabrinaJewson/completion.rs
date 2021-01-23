@@ -6,11 +6,8 @@ use completion_core::{CompletionFuture, CompletionStream};
 use futures_core::{ready, Stream};
 use pin_project_lite::pin_project;
 
-#[cfg(doc)]
-use super::super::CompletionStreamExt;
-
 pin_project! {
-    /// Future for [`CompletionStreamExt::count`].
+    /// Future for [`CompletionStreamExt::count`](crate::CompletionStreamExt::count).
     #[derive(Debug)]
     pub struct Count<S> {
         count: usize,

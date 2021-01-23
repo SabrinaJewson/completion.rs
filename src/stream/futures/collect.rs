@@ -8,11 +8,8 @@ use pin_project_lite::pin_project;
 
 use crate::stream::FromCompletionStream;
 
-#[cfg(doc)]
-use super::super::CompletionStreamExt;
-
 pin_project! {
-    /// Future for [`CompletionStreamExt::collect`].
+    /// Future for [`CompletionStreamExt::collect`](crate::CompletionStreamExt::collect).
     #[derive(Debug)]
     pub struct Collect<S: CompletionStream, C: FromCompletionStream<S::Item>> {
         #[pin]

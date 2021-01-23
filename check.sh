@@ -65,4 +65,9 @@ echo "======="
 cargo doc --no-deps --workspace
 
 echo
+echo "Spell check"
+echo "==========="
+cargo spellcheck
+
+echo
 echo "Success!"

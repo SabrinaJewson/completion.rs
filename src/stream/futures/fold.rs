@@ -6,11 +6,8 @@ use completion_core::{CompletionFuture, CompletionStream};
 use futures_core::{ready, Stream};
 use pin_project_lite::pin_project;
 
-#[cfg(doc)]
-use super::super::CompletionStreamExt;
-
 pin_project! {
-    /// Future for [`CompletionStreamExt::fold`].
+    /// Future for [`CompletionStreamExt::fold`](crate::CompletionStreamExt::fold).
     #[derive(Debug)]
     pub struct Fold<S, F, T> {
         #[pin]

@@ -7,11 +7,8 @@ use completion_core::CompletionStream;
 use futures_core::Stream;
 use pin_project_lite::pin_project;
 
-#[cfg(doc)]
-use super::super::CompletionStreamExt;
-
 pin_project! {
-    /// Stream for [`CompletionStreamExt::cloned`].
+    /// Stream for [`CompletionStreamExt::cloned`](crate::CompletionStreamExt::cloned).
     #[derive(Debug, Clone)]
     pub struct Cloned<S> {
         #[pin]
@@ -55,7 +52,7 @@ where
 }
 
 pin_project! {
-    /// Stream for [`CompletionStreamExt::copied`].
+    /// Stream for [`CompletionStreamExt::copied`](crate::CompletionStreamExt::copied).
     #[derive(Debug, Clone)]
     pub struct Copied<S> {
         #[pin]

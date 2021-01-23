@@ -8,11 +8,8 @@ use completion_core::{CompletionFuture, CompletionStream};
 use futures_core::{ready, Stream};
 use pin_project_lite::pin_project;
 
-#[cfg(doc)]
-use super::super::CompletionStreamExt;
-
 pin_project! {
-    /// Stream for [`CompletionStreamExt::map`].
+    /// Stream for [`CompletionStreamExt::map`](crate::CompletionStreamExt::map).
     #[derive(Debug, Clone)]
     pub struct Map<S, F> {
         #[pin]
@@ -62,7 +59,7 @@ where
 }
 
 pin_project! {
-    /// Stream for [`CompletionStreamExt::then`].
+    /// Stream for [`CompletionStreamExt::then`](crate::CompletionStreamExt::then).
     #[derive(Debug, Clone)]
     pub struct Then<S, F, Fut> {
         #[pin]
