@@ -316,8 +316,78 @@ pub trait CompletionStreamExt: CompletionStream {
         FilterMap::new(self, f)
     }
 
-    // TODO: enumerate
-    // TODO: peekable
+    /// Yield the current iteration count as well as the next value.
+    ///
+    /// The returned stream yields pairs `(i, val)` where `i` is the current index of iteration and
+    /// `val` is the value returned by the iterator.
+    ///
+    /// # Overflow Behaviour
+    ///
+    /// The method does no guarding against overflows, so enumerating more than [`usize::MAX`]
+    /// elements either produces the wrong result or panics. If debug assertions are enabled, a
+    /// panic is guaranteed.
+    ///
+    /// # Panic
+    ///
+    /// The returned iterator might panic if the to-be-returned index would overflow a [`usize`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let string = "Hello";
+    /// let mut stream = stream::iter(string.chars()).must_complete().enumerate();
+    ///
+    /// assert_eq!(stream.next().await, Some((0, 'H')));
+    /// assert_eq!(stream.next().await, Some((1, 'e')));
+    /// assert_eq!(stream.next().await, Some((2, 'l')));
+    /// assert_eq!(stream.next().await, Some((3, 'l')));
+    /// assert_eq!(stream.next().await, Some((4, 'o')));
+    /// assert_eq!(stream.next().await, None);
+    /// # });
+    /// ```
+    fn enumerate(self) -> Enumerate<Self>
+    where
+        Self: Sized,
+    {
+        Enumerate::new(self)
+    }
+
+    /// Create a stream which can use [`peek`](Peekable::peek) to look at the next element of the
+    /// stream without consuming it.
+    ///
+    /// Note that the underlying stream is still advanced when [`peek`](Peekable::peek) is called
+    /// for the first time after [`next`](Self::next); in order to retrieve the next element,
+    /// [`next`](Self::next) is called on the underlying iterator, hence any side effects of the
+    /// method with occur.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::{stream, pin};
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let mut stream = stream::iter("Hello!\n".chars()).must_complete().peekable();
+    ///
+    /// let mut s = String::new();
+    /// while stream.peek_unpin().await != Some(&'\n') {
+    ///     s.push(stream.next().await.unwrap());
+    /// }
+    /// assert_eq!(s, "Hello!");
+    /// assert_eq!(stream.next().await, Some('\n'));
+    /// assert_eq!(stream.next().await, None);
+    /// # });
+    /// ```
+    fn peekable(self) -> Peekable<Self>
+    where
+        Self: Sized,
+    {
+        Peekable::new(self)
+    }
 
     /// Skip items while the predicate returns `true`.
     ///
@@ -430,7 +500,34 @@ pub trait CompletionStreamExt: CompletionStream {
         Fuse::new(self)
     }
 
-    // TODO: inspect
+    /// Do something with each element in the stream, passing the value on.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let sum = stream::iter(0..16)
+    ///     .must_complete()
+    ///     .inspect(|x| println!("about to filter: {}", x))
+    ///     .filter(|x| x % 2 == 0)
+    ///     .inspect(|x| println!("made it through filter: {}", x))
+    ///     .fold(0_u32, |sum, i| sum + i)
+    ///     .await;
+    ///
+    /// assert_eq!(sum, 56);
+    /// # });
+    /// ```
+    fn inspect<F>(self, f: F) -> Inspect<Self, F>
+    where
+        Self: Sized,
+        F: FnMut(&Self::Item),
+    {
+        Inspect::new(self, f)
+    }
+
     // TODO: by_ref
 
     /// Collect all the items in the stream into a collection.
