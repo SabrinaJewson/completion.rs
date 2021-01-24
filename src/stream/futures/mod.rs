@@ -21,3 +21,6 @@ pub use fold::*;
 
 mod all_any;
 pub use all_any::*;
+
+mod find;
+pub use find::*;

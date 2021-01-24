@@ -319,7 +319,7 @@ pub trait CompletionStreamExt: CompletionStream {
     /// Yield the current iteration count as well as the next value.
     ///
     /// The returned stream yields pairs `(i, val)` where `i` is the current index of iteration and
-    /// `val` is the value returned by the iterator.
+    /// `val` is the value returned by the stream.
     ///
     /// # Overflow Behaviour
     ///
@@ -327,9 +327,9 @@ pub trait CompletionStreamExt: CompletionStream {
     /// elements either produces the wrong result or panics. If debug assertions are enabled, a
     /// panic is guaranteed.
     ///
-    /// # Panic
+    /// # Panics
     ///
-    /// The returned iterator might panic if the to-be-returned index would overflow a [`usize`].
+    /// The returned stream might panic if the to-be-returned index would overflow a [`usize`].
     ///
     /// # Examples
     ///
@@ -361,7 +361,7 @@ pub trait CompletionStreamExt: CompletionStream {
     ///
     /// Note that the underlying stream is still advanced when [`peek`](Peekable::peek) is called
     /// for the first time after [`next`](Self::next); in order to retrieve the next element,
-    /// [`next`](Self::next) is called on the underlying iterator, hence any side effects of the
+    /// [`next`](Self::next) is called on the underlying stream, hence any side effects of the
     /// method with occur.
     ///
     /// # Examples
@@ -664,9 +664,100 @@ pub trait CompletionStreamExt: CompletionStream {
         Any::new(self, f)
     }
 
-    // TODO: find
-    // TODO: find_map
-    // TODO: position
+    /// Search for an element in the stream that satisfies a predicate.
+    ///
+    /// `find()` is short-circuiting, it will stop processing as soon as the closure returns
+    /// `true`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let mut stream = stream::iter(1..10).must_complete();
+    ///
+    /// // Find the first even number.
+    /// assert_eq!(stream.find(|x| x % 2 == 0).await, Some(2));
+    ///
+    /// // Find the next odd number.
+    /// assert_eq!(stream.find(|x| x % 2 == 1).await, Some(3));
+    ///
+    /// // Find short-circuits.
+    /// assert_eq!(stream.next().await, Some(4));
+    /// # });
+    /// ```
+    fn find<P>(&mut self, predicate: P) -> Find<'_, Self, P>
+    where
+        Self: Unpin,
+        P: FnMut(&Self::Item) -> bool,
+    {
+        Find::new(self, predicate)
+    }
+
+    /// Finds the first element in a stream for which a function returns [`Some`].
+    ///
+    /// `stream.find_map(f).await` is equivalent to `stream.filter_map(f).await.next().await`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let mut stream = stream::iter(&["lol", "NaN", "2", "5"]).must_complete();
+    ///
+    /// assert_eq!(stream.find_map(|s| s.parse().ok()).await, Some(2));
+    /// assert_eq!(stream.find_map(|s| s.parse().ok()).await, Some(5));
+    /// assert_eq!(stream.next().await, None);
+    /// # });
+    /// ```
+    fn find_map<B, F>(&mut self, f: F) -> FindMap<'_, Self, F>
+    where
+        Self: Unpin,
+        F: FnMut(Self::Item) -> Option<B>,
+    {
+        FindMap::new(self, f)
+    }
+
+    /// Get the index of an element in the stream.
+    ///
+    /// `position()` is short-circuiting, it will stop processing as soon as the closure returns
+    /// `true`.
+    ///
+    /// # Overflow Behaviour
+    ///
+    /// The method does no guarding against overflows, so enumerating more than [`usize::MAX`]
+    /// elements either produces the wrong result or panics. If debug assertions are enabled, a
+    /// panic is guaranteed.
+    ///
+    /// # Panics
+    ///
+    /// The returned stream might panic if the to-be-returned index would overflow a [`usize`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let mut stream = stream::iter(1..10).must_complete();
+    ///
+    /// assert_eq!(stream.position(|x| x == 4).await, Some(3));
+    /// assert_eq!(stream.position(|x| x == 11).await, None);
+    /// # });
+    /// ```
+    fn position<P>(&mut self, predicate: P) -> Position<'_, Self, P>
+    where
+        Self: Unpin,
+        P: FnMut(Self::Item) -> bool,
+    {
+        Position::new(self, predicate)
+    }
+
     // TODO: max
     // TODO: min
     // TODO: max_by_key
