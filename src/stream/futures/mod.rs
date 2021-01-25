@@ -24,3 +24,6 @@ pub use all_any::*;
 
 mod find;
 pub use find::*;
+
+mod max_min;
+pub use max_min::*;

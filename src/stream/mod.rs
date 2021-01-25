@@ -2,6 +2,7 @@
 
 #[cfg(feature = "alloc")]
 use alloc::boxed::Box;
+use core::cmp;
 #[cfg(feature = "std")]
 use core::iter::FusedIterator;
 use core::pin::Pin;
@@ -758,12 +759,168 @@ pub trait CompletionStreamExt: CompletionStream {
         Position::new(self, predicate)
     }
 
-    // TODO: max
-    // TODO: min
-    // TODO: max_by_key
-    // TODO: max_by
-    // TODO: min_by_key
-    // TODO: min_by
+    /// Find the maximum value in the stream.
+    ///
+    /// If several elements are equally maximum, the last element is returned. If the stream is
+    /// empty, [`None`] is returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// assert_eq!(stream::iter(&[1, 5, 2, 7, 4]).must_complete().max().await, Some(&7));
+    /// assert_eq!(stream::iter(<Vec<()>>::new()).must_complete().max().await, None);
+    ///
+    /// let first = 5;
+    /// let second = 5;
+    /// let r = stream::iter(vec![&first, &second]).must_complete().max().await.unwrap();
+    /// // `first` and `second` are equal in value, but `second` is chosen because it is later.
+    /// assert_eq!(r as *const _, &second as *const _);
+    /// # });
+    /// ```
+    fn max(self) -> Max<Self>
+    where
+        Self: Sized,
+        Self::Item: Ord,
+    {
+        Max::new(self)
+    }
+
+    /// Find the maximum value in the stream using the specified comparison function.
+    ///
+    /// If several elements are equally maximum, the last element is returned. If the stream is
+    /// empty, [`None`] is returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let a = [("a", 1), ("b", 7), ("c", 2), ("d", 7), ("e", 4)];
+    /// let max = stream::iter(&a).must_complete().max_by(|(_, x), (_, y)| x.cmp(y)).await;
+    /// assert_eq!(max, Some(&("d", 7)));
+    /// # });
+    /// ```
+    fn max_by<F>(self, compare: F) -> MaxBy<Self, F>
+    where
+        Self: Sized,
+        F: FnMut(&Self::Item, &Self::Item) -> cmp::Ordering,
+    {
+        MaxBy::new(self, compare)
+    }
+
+    /// Find the element that gives the maximum value from the specified function.
+    ///
+    /// If several elements are equally maximum, the last element is returned. If the stream is
+    /// empty, [`None`] is returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let a: &[i32] = &[-3, 2, 10, 5, -10];
+    /// let max = stream::iter(a).must_complete().max_by_key(|x| x.abs()).await;
+    /// assert_eq!(max, Some(&-10));
+    /// # });
+    /// ```
+    fn max_by_key<B, F>(self, f: F) -> MaxByKey<Self, B, F>
+    where
+        Self: Sized,
+        B: Ord,
+        F: FnMut(&Self::Item) -> B,
+    {
+        MaxByKey::new(self, f)
+    }
+
+    /// Find the minimum value in the stream.
+    ///
+    /// If several elements are equally minimum, the first element is returned. If the stream is
+    /// empty, [`None`] is returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// assert_eq!(stream::iter(&[5, 7, 1, 3, 2]).must_complete().min().await, Some(&1));
+    /// assert_eq!(stream::iter(<Vec<()>>::new()).must_complete().min().await, None);
+    ///
+    /// let first = 5;
+    /// let second = 5;
+    /// let r = stream::iter(vec![&first, &second]).must_complete().min().await.unwrap();
+    /// // `first` and `second` are equal in value, but `first` is chosen because it is earlier.
+    /// assert_eq!(r as *const _, &first as *const _);
+    /// # });
+    /// ```
+    fn min(self) -> Min<Self>
+    where
+        Self: Sized,
+        Self::Item: Ord,
+    {
+        Min::new(self)
+    }
+
+    /// Find the minimum value in the stream using the specified comparison function.
+    ///
+    /// If several elements are equally minimum, the last element is returned. If the stream is
+    /// empty, [`None`] is returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let a = [("a", 3), ("b", 7), ("c", 1), ("d", 1), ("e", 4)];
+    /// let min = stream::iter(&a).must_complete().min_by(|(_, x), (_, y)| x.cmp(y)).await;
+    /// assert_eq!(min, Some(&("c", 1)));
+    /// # });
+    /// ```
+    fn min_by<F>(self, compare: F) -> MinBy<Self, F>
+    where
+        Self: Sized,
+        F: FnMut(&Self::Item, &Self::Item) -> cmp::Ordering,
+    {
+        MinBy::new(self, compare)
+    }
+
+    /// Find the element that gives the minimum value from the specified function.
+    ///
+    /// If several elements are equally minimum, the last element is returned. If the stream is
+    /// empty, [`None`] is returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let a: &[i32] = &[-10, 9, 23, -2, 8, 2];
+    /// let min = stream::iter(a).must_complete().min_by_key(|x| x.abs()).await;
+    /// assert_eq!(min, Some(&-2));
+    /// # });
+    /// ```
+    fn min_by_key<B, F>(self, f: F) -> MinByKey<Self, B, F>
+    where
+        Self: Sized,
+        B: Ord,
+        F: FnMut(&Self::Item) -> B,
+    {
+        MinByKey::new(self, f)
+    }
+
     // TODO: unzip
 
     /// Create a stream that copies all of its elements.

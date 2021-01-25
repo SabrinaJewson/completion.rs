@@ -415,7 +415,7 @@ where
 }
 
 pin_project! {
-    /// Future for [`flush`] on a [`BufWriter`].
+    /// Future for [`flush`](AsyncWriteWith::flush) on a [`BufWriter`].
     pub struct FlushBufWriter<'a, W: AsyncWrite>
     where
         W: 'static,
