@@ -93,6 +93,13 @@ where
             item
         }))
     }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        if self.fut.is_none() && self.state.is_none() {
+            (0, Some(0))
+        } else {
+            (0, None)
+        }
+    }
 }
 
 impl<T, F, Fut, Item> Stream for Unfold<T, F, Fut>
@@ -104,6 +111,9 @@ where
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         unsafe { CompletionStream::poll_next(self, cx) }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        CompletionStream::size_hint(self)
     }
 }
 
@@ -200,6 +210,13 @@ where
             }
         })
     }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        if self.state.is_none() && self.fut.is_none() {
+            (0, Some(0))
+        } else {
+            (0, None)
+        }
+    }
 }
 
 impl<T, E, F, Fut, Item> Stream for TryUnfold<T, F, Fut>
@@ -212,5 +229,8 @@ where
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         unsafe { CompletionStream::poll_next(self, cx) }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        CompletionStream::size_hint(self)
     }
 }

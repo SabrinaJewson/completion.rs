@@ -16,6 +16,9 @@ pub use enumerate::*;
 mod peekable;
 pub use peekable::*;
 
+mod flatten;
+pub use flatten::*;
+
 mod skip_take_while;
 pub use skip_take_while::*;
 

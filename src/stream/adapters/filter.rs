@@ -93,6 +93,10 @@ where
             }
         }
     }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let (_, upper) = self.stream.size_hint();
+        (0, upper)
+    }
 }
 
 impl<S, F, T> Stream for FilterMap<S, F>

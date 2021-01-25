@@ -475,8 +475,62 @@ pub trait CompletionStreamExt: CompletionStream {
     }
 
     // TODO: scan
-    // TODO: flat_map
-    // TODO: flatten
+
+    /// Map the stream, flattening nested structure.
+    ///
+    /// `.flat_map(f)` is equivalent to `.[`map`](Self::map)`(f).`[`flatten`](Self::flatten)`()`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let s: String = stream::iter(&["alpha", "beta", "gamma"])
+    ///     .must_complete()
+    ///     .flat_map(|s| stream::iter(s.chars()).must_complete())
+    ///     .collect()
+    ///     .await;
+    ///
+    /// assert_eq!(s, "alphabetagamma");
+    /// # });
+    /// ```
+    fn flat_map<U, F>(self, f: F) -> FlatMap<Self, U, F>
+    where
+        Self: Sized,
+        U: CompletionStream,
+        F: FnMut(Self::Item) -> U,
+    {
+        FlatMap::new(self, f)
+    }
+
+    /// Flatten nested structure in the stream.
+    ///
+    /// This converts a stream of streams to a stream.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let streams = vec![
+    ///     stream::iter(0..5).must_complete(),
+    ///     stream::iter(5..7).must_complete(),
+    /// ];
+    /// let v: Vec<u8> = stream::iter(streams).must_complete().flatten().collect().await;
+    /// assert_eq!(v, &[0, 1, 2, 3, 4, 5, 6]);
+    /// # });
+    /// ```
+    fn flatten(self) -> Flatten<Self>
+    where
+        Self: Sized,
+        Self::Item: CompletionStream,
+    {
+        Flatten::new(self)
+    }
 
     /// Fuse the stream so that it is guaranteed to continue to yield `None` when exhausted.
     ///
