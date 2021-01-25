@@ -33,3 +33,6 @@ pub use inspect::*;
 
 mod cloned;
 pub use cloned::*;
+
+mod cycle;
+pub use cycle::*;

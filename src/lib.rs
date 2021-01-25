@@ -24,7 +24,11 @@
     explicit_outlives_requirements,
     unused_lifetimes
 )]
-#![allow(clippy::module_name_repetitions, clippy::shadow_unrelated)]
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::shadow_unrelated,
+    clippy::clippy::option_if_let_else
+)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -77,7 +81,7 @@ pin_project! {
     /// ```
     ///
     /// Note that the [`completion_async!`] macro is a better way to achieve this.
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     #[must_use = "futures and streams do nothing unless you use them"]
     pub struct AssertCompletes<T: ?Sized> {
         #[pin]
@@ -167,7 +171,7 @@ pin_project! {
     /// let request_future = MustComplete::new(send_request());
     /// // Now you can be sure that the request will finish sending.
     /// ```
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     #[must_use = "futures and streams do nothing unless you use them"]
     pub struct MustComplete<T: ?Sized> {
         #[pin]

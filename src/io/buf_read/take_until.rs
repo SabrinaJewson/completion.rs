@@ -119,7 +119,6 @@ impl<'a, R: AsyncBufRead> CompletionFuture for FillBufTakeUntil<'a, R> {
             let buf = ready!(fut.poll(cx))?;
             this.fut.set(None);
 
-            #[allow(clippy::option_if_let_else)]
             if let Some(index) = memchr::memchr(*this.delim, buf) {
                 **this.bytes_to_delim = Some(index + 1);
                 &buf[..=index]

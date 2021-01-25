@@ -65,7 +65,6 @@ impl<'a, T: AsyncRead + ?Sized + 'a> CompletionFuture for ReadToString<'a, T> {
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
 
-        #[allow(clippy::option_if_let_else)]
         let inner = if let Some(inner) = this.inner.as_mut().as_pin_mut() {
             inner
         } else {

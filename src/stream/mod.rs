@@ -977,7 +977,7 @@ pub trait CompletionStreamExt: CompletionStream {
 
     // TODO: unzip
 
-    /// Create a stream that copies all of its elements.
+    /// Copy all of the elements in the stream.
     ///
     /// This is useful when you have a stream over `&T`, but you need a stream over `T`.
     ///
@@ -1000,7 +1000,7 @@ pub trait CompletionStreamExt: CompletionStream {
         Copied::new(self)
     }
 
-    /// Create a stream that clones all of its elements.
+    /// Clone all of the elements in the stream.
     ///
     /// This is useful when you have a stream over `&T`, but you need a stream over `T`.
     ///
@@ -1023,7 +1023,37 @@ pub trait CompletionStreamExt: CompletionStream {
         Cloned::new(self)
     }
 
-    // TODO: cycle
+    /// Repeat the stream endlessly.
+    ///
+    /// Instead of stopping at [`None`], this stream will start again, from the beginning. The
+    /// returned stream will only return [`None`] when the underlying stream is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{CompletionStreamExt, StreamExt};
+    /// use futures_lite::stream;
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// let mut stream = stream::iter(0..3).must_complete().cycle();
+    ///
+    /// assert_eq!(stream.next().await, Some(0));
+    /// assert_eq!(stream.next().await, Some(1));
+    /// assert_eq!(stream.next().await, Some(2));
+    /// assert_eq!(stream.next().await, Some(0));
+    /// assert_eq!(stream.next().await, Some(1));
+    /// assert_eq!(stream.next().await, Some(2));
+    /// assert_eq!(stream.next().await, Some(0));
+    /// // And so on...
+    /// # });
+    /// ```
+    fn cycle(self) -> Cycle<Self>
+    where
+        Self: Sized + Clone,
+    {
+        Cycle::new(self)
+    }
+
     // TODO: cmp
     // TODO: partial_cmp
     // TODO: eq
