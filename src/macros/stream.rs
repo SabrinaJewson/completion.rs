@@ -11,6 +11,9 @@ use pin_project_lite::pin_project;
 #[doc(hidden)]
 pub use completion_macro::completion_stream_inner as __completion_stream_inner;
 
+#[cfg(test)]
+mod tests;
+
 /// A bang macro to generate completion async streams.
 ///
 /// These async streams evaluate to a [`CompletionStream`], and you can `.await`

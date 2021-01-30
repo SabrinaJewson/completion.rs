@@ -142,7 +142,7 @@ mod tests {
     use crate::future::block_on;
 
     use super::super::{
-        test_utils::{now_or_never, YieldingReader},
+        test_utils::{poll_once, YieldingReader},
         AsyncReadExt,
     };
 
@@ -181,8 +181,8 @@ mod tests {
         let mut reader = YieldingReader::new((0..10).map(|_| [10, 11]).map(Ok));
         let fut = reader.read_to_end(&mut v);
         futures_lite::pin!(fut);
-        assert!(now_or_never(fut.as_mut()).is_none());
-        assert!(now_or_never(fut.as_mut()).is_none());
+        assert!(poll_once(fut.as_mut()).is_none());
+        assert!(poll_once(fut.as_mut()).is_none());
         assert_eq!(v, [10, 11]);
     }
 

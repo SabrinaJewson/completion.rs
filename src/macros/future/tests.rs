@@ -1,9 +1,7 @@
-#![cfg(all(feature = "macro", feature = "std"))]
 #![deny(warnings)]
 #![deny(
     absolute_paths_not_starting_with_crate,
     box_pointers,
-    elided_lifetimes_in_paths,
     explicit_outlives_requirements,
     keyword_idents,
     macro_use_extern_crate,
@@ -13,7 +11,6 @@
     missing_debug_implementations,
     missing_doc_code_examples,
     missing_docs,
-    non_ascii_idents,
     pointer_structural_match,
     private_doc_tests,
     single_use_lifetimes,
@@ -33,12 +30,17 @@
 #![deny(clippy::pedantic)]
 
 use std::borrow::Cow;
+use std::cell::Cell;
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
-use completion::{completion, completion_async, completion_async_move, future::block_on};
 use completion_core::CompletionFuture;
 use futures_lite::future::yield_now;
 
-#[completion]
+use crate::{completion, completion_async, completion_async_move, future::block_on, test_utils};
+
+#[completion(crate = crate)]
 async fn empty_async() {}
 
 #[test]
@@ -46,9 +48,9 @@ fn empty() {
     block_on(empty_async());
 }
 
-#[completion]
+#[completion(crate = crate)]
 async fn nested_async() {
-    #[completion]
+    #[completion(crate = crate)]
     async fn inner_function() {
         yield_now().await;
         empty_async().await;
@@ -71,7 +73,7 @@ fn nested() {
     block_on(nested_async());
 }
 
-#[completion]
+#[completion(crate = crate)]
 #[allow(single_use_lifetimes, clippy::trivially_copy_pass_by_ref)]
 async fn lifetimes_async<'a, 'b, T>(x: &'a T, y: &&&String, z: &mut Cow<'a, str>) -> &'a T {
     let _ = y;
@@ -90,7 +92,7 @@ fn lifetimes() {
 
 struct X;
 impl X {
-    #[completion]
+    #[completion(crate = crate)]
     #[allow(clippy::trivially_copy_pass_by_ref)]
     async fn method(&self, param: &'static i32) -> impl Clone {
         let _ = self;
@@ -150,7 +152,7 @@ fn block_try() {
 #[test]
 fn send() {
     fn requires_send<T: Send>(_: T) {}
-    #[completion]
+    #[completion(crate = crate)]
     async fn x() {}
 
     requires_send(completion_async! {});
@@ -158,4 +160,90 @@ fn send() {
         yield_now().await;
     });
     requires_send(x());
+}
+
+#[test]
+fn cancel_completion_future() {
+    struct Fut<'a> {
+        stage: u8,
+        number: &'a Cell<i32>,
+    }
+    #[allow(unsafe_code)]
+    impl CompletionFuture for Fut<'_> {
+        type Output = ();
+        unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            self.number.set(1);
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        }
+        unsafe fn poll_cancel(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+            match self.stage {
+                0 => self.number.set(2),
+                1 => {
+                    self.number.set(3);
+                    return Poll::Ready(());
+                }
+                _ => unreachable!(),
+            }
+            self.stage += 1;
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        }
+    }
+
+    let number = Cell::new(0);
+
+    let fut = completion_async! {
+        Fut { stage: 0, number: &number }.await;
+    };
+    futures_lite::pin!(fut);
+
+    assert_eq!(test_utils::poll_once(fut.as_mut()), None);
+    assert_eq!(number.get(), 1);
+
+    assert_eq!(test_utils::poll_cancel_once(fut.as_mut()), false);
+    assert_eq!(number.get(), 2);
+
+    assert_eq!(test_utils::poll_cancel_once(fut.as_mut()), true);
+    assert_eq!(number.get(), 3);
+}
+
+#[test]
+fn cancel_future() {
+    struct Fut<'a> {
+        number: &'a Cell<i32>,
+    }
+    #[allow(unsafe_code)]
+    impl CompletionFuture for Fut<'_> {
+        type Output = ();
+        unsafe fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            panic!()
+        }
+        unsafe fn poll_cancel(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+            panic!()
+        }
+    }
+    impl Future for Fut<'_> {
+        type Output = ();
+        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            self.number.set(self.number.get() + 1);
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        }
+    }
+
+    let number = Cell::new(0);
+
+    let fut = completion_async! {
+        Fut { number: &number }.await;
+    };
+    futures_lite::pin!(fut);
+
+    for n in 1..=10 {
+        assert_eq!(test_utils::poll_once(fut.as_mut()), None);
+        assert_eq!(number.get(), n);
+    }
+
+    assert_eq!(test_utils::poll_cancel_once(fut.as_mut()), true);
+    assert_eq!(number.get(), 10);
 }

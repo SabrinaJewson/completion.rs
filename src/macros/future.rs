@@ -6,6 +6,9 @@ use core::task::{Context, Poll};
 use completion_core::CompletionFuture;
 use pin_project_lite::pin_project;
 
+#[cfg(test)]
+mod tests;
+
 /// An attribute macro to generate completion `async fn`s. These async functions evaluate to a
 /// [`CompletionFuture`], and you can `.await` other [`CompletionFuture`]s inside of them.
 ///
@@ -214,9 +217,12 @@ impl<F: CompletionFuture> Future for Await<F> {
 
         if FLAG.with(Cell::get) {
             let poll = unsafe { this.fut.poll_cancel(cx) };
+            // Tell the async block whether we have finished cancelling.
             FLAG.with(|cell| cell.set(poll.is_ready()));
             Poll::Pending
         } else {
+            // Tell the async block that it is awaiting a completion future.
+            FLAG.with(|cell| cell.set(true));
             unsafe { this.fut.poll(cx) }
         }
     }

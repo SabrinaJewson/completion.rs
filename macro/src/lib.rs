@@ -52,7 +52,17 @@ impl Parse for CompletionAttr {
                 }
                 input.parse::<Token![crate]>()?;
                 input.parse::<Token![=]>()?;
-                crate_path = Some(input.parse::<Path>()?.into_token_stream());
+                crate_path = Some(
+                    input
+                        .parse::<Path>()?
+                        .into_token_stream()
+                        .into_iter()
+                        .map(|mut token| {
+                            token.set_span(Span::call_site());
+                            token
+                        })
+                        .collect(),
+                );
             } else if input.peek(Token![box]) {
                 if boxed.is_some() {
                     return Err(input.error("duplicate boxed option"));

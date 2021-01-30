@@ -1,9 +1,7 @@
-#![cfg(all(feature = "macro", feature = "std"))]
 #![deny(warnings)]
 #![deny(
     absolute_paths_not_starting_with_crate,
     box_pointers,
-    elided_lifetimes_in_paths,
     explicit_outlives_requirements,
     keyword_idents,
     macro_use_extern_crate,
@@ -13,7 +11,6 @@
     missing_debug_implementations,
     missing_doc_code_examples,
     missing_docs,
-    non_ascii_idents,
     pointer_structural_match,
     private_doc_tests,
     single_use_lifetimes,
@@ -32,10 +29,11 @@
 )]
 #![deny(clippy::pedantic)]
 
-use completion::{completion_async, completion_stream, future::block_on, CompletionStreamExt};
 use completion_core::CompletionStream;
 use futures_lite::future::yield_now;
 use futures_lite::pin;
+
+use crate::{completion_async, completion_stream, future::block_on, CompletionStreamExt};
 
 #[test]
 fn empty() {

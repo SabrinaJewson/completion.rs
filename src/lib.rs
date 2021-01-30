@@ -278,7 +278,7 @@ impl<T: CompletionStream> CompletionStream for MustComplete<T> {
 mod test_utils {
     use core::future::Future;
     use core::pin::Pin;
-    use core::task::{Context, Poll};
+    use core::task::{Context, Poll, Waker};
 
     use completion_core::CompletionFuture;
 
@@ -332,21 +332,34 @@ mod test_utils {
         }
     }
 
-    #[cfg_attr(not(feature = "std"), allow(dead_code))]
-    pub(super) fn now_or_never<F: Future>(fut: F) -> Option<F::Output> {
+    pub(super) fn noop_waker() -> Waker {
         use core::ptr;
-        use core::task::{RawWaker, RawWakerVTable, Waker};
+        use core::task::{RawWaker, RawWakerVTable};
 
         const WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(|_| RAW_WAKER, drop, drop, drop);
         const RAW_WAKER: RawWaker = RawWaker::new(ptr::null(), &WAKER_VTABLE);
 
-        let waker = unsafe { Waker::from_raw(RAW_WAKER) };
+        unsafe { Waker::from_raw(RAW_WAKER) }
+    }
+
+    #[cfg_attr(not(feature = "std"), allow(dead_code))]
+    pub(super) fn poll_once<F: CompletionFuture>(fut: F) -> Option<F::Output> {
+        let waker = noop_waker();
         let mut cx = Context::from_waker(&waker);
 
         futures_lite::pin!(fut);
-        match fut.poll(&mut cx) {
+        match unsafe { fut.poll(&mut cx) } {
             Poll::Ready(val) => Some(val),
             Poll::Pending => None,
         }
+    }
+
+    #[cfg_attr(not(feature = "std"), allow(dead_code))]
+    pub(super) fn poll_cancel_once<F: CompletionFuture>(fut: F) -> bool {
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+
+        futures_lite::pin!(fut);
+        unsafe { fut.poll_cancel(&mut cx) }.is_ready()
     }
 }
