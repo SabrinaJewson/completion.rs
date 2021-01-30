@@ -49,6 +49,9 @@ where
             }
         }
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().stream.poll_cancel(cx)
+    }
 }
 
 impl<S, F, T> Future for Fold<S, F, T>

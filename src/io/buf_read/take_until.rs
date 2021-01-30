@@ -65,6 +65,9 @@ impl<R: AsyncBufRead> CompletionFuture for ReadTakeUntil<'_, R> {
         this.reader.consume(amt);
         Poll::Ready(Ok(()))
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().inner.poll_cancel(cx)
+    }
 }
 
 impl<'a, R: AsyncBufRead> Future for ReadTakeUntil<'a, R>
@@ -128,6 +131,13 @@ impl<'a, R: AsyncBufRead> CompletionFuture for FillBufTakeUntil<'a, R> {
         } else {
             &[]
         }))
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        if let Some(fut) = self.project().fut.as_pin_mut() {
+            fut.poll_cancel(cx)
+        } else {
+            Poll::Ready(())
+        }
     }
 }
 

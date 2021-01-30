@@ -1,15 +1,11 @@
-use alloc::boxed::Box;
 use core::cell::Cell;
-use core::fmt::{self, Debug, Formatter};
 use core::future::Future;
-use core::marker::PhantomPinned;
+use core::marker::PhantomData;
 use core::pin::Pin;
+use core::ptr;
 use core::task::{Context, Poll};
 
-use aliasable::boxed::AliasableBox;
-#[cfg(doc)]
-use completion_core::CompletionFuture;
-use completion_core::CompletionStream;
+use completion_core::{CompletionFuture, CompletionStream};
 use pin_project_lite::pin_project;
 
 #[doc(hidden)]
@@ -22,7 +18,7 @@ pub use completion_macro::completion_stream_inner as __completion_stream_inner;
 /// operator works in the stream if it yields an [`Option`] or [`Result`] - if an error occurs the
 /// stream will yield that single error and then exit.
 ///
-/// Requires the `macro` and `alloc` features.
+/// Requires the `macro` and `std` features.
 ///
 /// # Examples
 ///
@@ -52,191 +48,87 @@ macro_rules! completion_stream {
     }
 }
 
-/// A stable version of the try trait, for use with `?` in `completion_stream!`s.
 #[doc(hidden)]
-pub trait __Try {
-    /// The type of this value on success.
-    type Ok;
-    /// The type of this value on failure.
-    type Error;
-
-    /// Applies the `?` operator.
-    ///
-    /// # Errors
-    ///
-    /// Fails if the try value is an error.
-    fn into_result(self) -> Result<Self::Ok, Self::Error>;
-
-    /// Wrap an error value.
-    fn from_error(v: Self::Error) -> Self;
-
-    /// Wrap an OK value.
-    fn from_ok(v: Self::Ok) -> Self;
-}
-
-impl<T> __Try for Option<T> {
-    type Ok = T;
-    type Error = NoneError;
-
-    fn into_result(self) -> Result<Self::Ok, Self::Error> {
-        self.ok_or(NoneError)
-    }
-    fn from_error(_: Self::Error) -> Self {
-        None
-    }
-    fn from_ok(v: Self::Ok) -> Self {
-        Some(v)
+pub fn __completion_stream<T, F>(
+    generator: F,
+    item: PhantomData<T>,
+) -> impl CompletionStream<Item = T>
+where
+    F: CompletionFuture<Output = ()>,
+{
+    Wrapper {
+        generator,
+        _item: item,
     }
 }
 
-mod none_error {
-    #[doc(hidden)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct NoneError;
-}
-use none_error::NoneError;
-
-impl<T, E> __Try for Result<T, E> {
-    type Ok = T;
-    type Error = E;
-
-    fn into_result(self) -> Result<<Self as __Try>::Ok, Self::Error> {
-        self
-    }
-    fn from_error(v: Self::Error) -> Self {
-        Err(v)
-    }
-    fn from_ok(v: <Self as __Try>::Ok) -> Self {
-        Ok(v)
-    }
+thread_local! {
+    static YIELDED_VALUE: Cell<*mut ()> = Cell::new(ptr::null_mut());
 }
 
 pin_project! {
-    /// An asynchronous stream backed by a future.
-    #[doc(hidden)]
-    pub struct __AsyncStream<T, F, Fut> {
-        // The function used to create the generator.
-        f: Option<F>,
-
-        // The generator itself.
+    struct Wrapper<T, F> {
         #[pin]
-        generator: Option<Fut>,
-
-        // The last yielded item. The generator holds a pointer to this.
-        yielded: AliasableBox<Cell<Option<T>>>,
-
-        // We want to support unboxing `yielded` in the future.
-        #[pin]
-        _pinned: PhantomPinned,
+        generator: F,
+        _item: PhantomData<T>,
     }
 }
 
-impl<T, F, Fut> __AsyncStream<T, F, Fut>
+impl<T, F> CompletionStream for Wrapper<T, F>
 where
-    F: FnOnce(Sender<T>) -> Fut,
-    Fut: Future<Output = ()>,
-{
-    #[doc(hidden)]
-    pub fn new(f: F) -> Self {
-        Self {
-            f: Some(f),
-            generator: None,
-            yielded: AliasableBox::from_unique(Box::new(Cell::new(None))),
-            _pinned: PhantomPinned,
-        }
-    }
-}
-
-impl<T: Debug, F, Fut: Debug> Debug for __AsyncStream<T, F, Fut> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        struct F;
-        impl Debug for F {
-            fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-                f.write_str("<closure>")
-            }
-        }
-
-        f.debug_struct("AsyncStream")
-            .field("f", &self.f.as_ref().map(|_| F))
-            .field("generator", &self.generator)
-            .finish()
-    }
-}
-
-impl<T, F, Fut> CompletionStream for __AsyncStream<T, F, Fut>
-where
-    F: FnOnce(Sender<T>) -> Fut,
-    Fut: Future<Output = ()>,
+    F: CompletionFuture<Output = ()>,
 {
     type Item = T;
 
     unsafe fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut this = self.project();
-
-        if this.generator.as_mut().as_pin_mut().is_none() {
-            let sender = Sender {
-                ptr: &**this.yielded,
-            };
-            this.generator
-                .as_mut()
-                .set(Some(this.f.take().unwrap()(sender)));
+        struct ResetYieldedValueGuard(*mut ());
+        impl Drop for ResetYieldedValueGuard {
+            fn drop(&mut self) {
+                YIELDED_VALUE.with(|cell| cell.set(self.0));
+            }
         }
 
-        let res = this.generator.as_pin_mut().unwrap().poll(cx);
+        let this = self.project();
 
-        match res {
-            Poll::Ready(()) => Poll::Ready(None),
-            Poll::Pending => this
-                .yielded
-                .take()
-                // The future is not necessarily complete at this point and yet we are telling the
-                // caller that we can be dropped.
-                //
-                // This is safe however because the macro asserts that no other non-droppable
-                // completion futures can exist in the generator at yield points.
-                .map_or(Poll::Pending, |val| Poll::Ready(Some(val))),
+        let mut yielded = None;
+        let yielded_ptr = &mut yielded as *mut _ as *mut ();
+
+        let guard = ResetYieldedValueGuard(YIELDED_VALUE.with(|cell| cell.replace(yielded_ptr)));
+        let res = this.generator.poll(cx);
+        drop(guard);
+
+        match (yielded, res) {
+            (Some(yielded), Poll::Pending) => Poll::Ready(Some(yielded)),
+            (None, Poll::Ready(())) => Poll::Ready(None),
+            (None, Poll::Pending) => Poll::Pending,
+            _ => unreachable!(),
         }
     }
-}
-
-mod sender {
-    use core::cell::Cell;
-
-    pub struct Sender<T> {
-        pub(super) ptr: *const Cell<Option<T>>,
-    }
-}
-use sender::Sender;
-
-impl<T> Sender<T> {
-    pub fn send(&mut self, value: T) -> impl Future<Output = ()> {
-        unsafe { &*self.ptr }.set(Some(value));
-
-        SendFut { yielded: false }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().generator.poll_cancel(cx)
     }
 }
 
-impl<T> Debug for Sender<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.pad("Sender")
-    }
+#[doc(hidden)]
+pub fn __yield_value<T>(_item: PhantomData<T>, value: T) -> impl Future<Output = ()> {
+    let ptr = YIELDED_VALUE.with(Cell::get) as *mut Option<T>;
+    debug_assert!(!ptr.is_null());
+
+    *unsafe { &mut *ptr } = Some(value);
+
+    YieldFut(true)
 }
 
-// Sender alone wouldn't be Send, however since we know it is only ever inside the generator if it
-// is sent to another thread the __AsyncStream it is inside will be too.
-unsafe impl<T> Send for Sender<T> {}
-
-struct SendFut {
-    yielded: bool,
-}
-impl Future for SendFut {
+struct YieldFut(bool);
+impl Future for YieldFut {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.yielded {
-            Poll::Ready(())
-        } else {
-            self.yielded = true;
+        if self.0 {
+            self.0 = false;
+            // We don't need to wake the waker as the outer stream is going to return Poll::Ready.
             Poll::Pending
+        } else {
+            Poll::Ready(())
         }
     }
 }

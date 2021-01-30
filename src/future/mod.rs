@@ -16,12 +16,17 @@ use pin_project_lite::pin_project;
 #[doc(no_inline)]
 pub use completion_core::CompletionFuture;
 
-use super::MustComplete;
+use super::{Adapter, MustComplete};
 
 #[cfg(feature = "std")]
 mod block_on;
 #[cfg(feature = "std")]
 pub use block_on::block_on;
+
+#[cfg(feature = "std")]
+mod zip;
+#[cfg(feature = "std")]
+pub use zip::*;
 
 /// Extension trait for [`CompletionFuture`].
 pub trait CompletionFutureExt: CompletionFuture {
@@ -35,6 +40,27 @@ pub trait CompletionFutureExt: CompletionFuture {
         Self: Unpin,
     {
         Pin::new(self).poll(cx)
+    }
+
+    /// A convenience for calling [`CompletionFuture::poll_cancel`] on [`Unpin`] futures.
+    ///
+    /// # Safety
+    ///
+    /// Identical to [`CompletionFuture::poll_cancel`].
+    unsafe fn poll_cancel(&mut self, cx: &mut Context<'_>) -> Poll<()>
+    where
+        Self: Unpin,
+    {
+        Pin::new(self).poll_cancel(cx)
+    }
+
+    /// Make sure that the future will complete. Any requests to cancel the future through
+    /// [`poll_cancel`](CompletionFuture::poll_cancel) will be ignored.
+    fn must_complete(self) -> MustComplete<Self>
+    where
+        Self: Sized,
+    {
+        MustComplete { inner: self }
     }
 
     /// Catch panics in the future.
@@ -132,6 +158,10 @@ impl<F: CompletionFuture + UnwindSafe + ?Sized> CompletionFuture for CatchUnwind
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         catch_unwind(AssertUnwindSafe(|| self.project().inner.poll(cx)))?.map(Ok)
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        catch_unwind(AssertUnwindSafe(|| self.project().inner.poll_cancel(cx)))
+            .unwrap_or(Poll::Ready(()))
+    }
 }
 
 #[cfg(feature = "std")]
@@ -155,110 +185,19 @@ pub type BoxCompletionFuture<'a, T> = Pin<Box<dyn CompletionFuture<Output = T> +
 #[cfg(feature = "alloc")]
 pub type LocalBoxCompletionFuture<'a, T> = Pin<Box<dyn CompletionFuture<Output = T> + 'a>>;
 
-/// Joins two futures, waiting for them both to complete.
-///
-/// Requires the `std` feature, as [`catch_unwind`] is needed when polling the futures to ensure
-/// soundness.
-///
-/// # Examples
-///
-/// ```
-/// use completion::{future, completion_async};
-///
-/// # future::block_on(completion_async! {
-/// assert_eq!(
-///     future::zip(
-///         completion_async!(5),
-///         completion_async!(6),
-///     )
-///     .await,
-///     (5, 6),
-/// );
-/// # });
-/// ```
-#[cfg(feature = "std")]
-pub fn zip<F1: CompletionFuture, F2: CompletionFuture>(future1: F1, future2: F2) -> Zip<F1, F2> {
-    Zip {
-        future1,
-        output1: None,
-        future2,
-        output2: None,
-    }
-}
-
-#[cfg(feature = "std")]
-pin_project! {
-    /// Future for [`zip`].
-    #[derive(Debug)]
-    #[must_use = "futures do nothing unless you use them"]
-    pub struct Zip<F1: CompletionFuture, F2: CompletionFuture> {
-        #[pin]
-        future1: F1,
-        output1: Option<Result<F1::Output, Box<dyn Any + Send>>>,
-        #[pin]
-        future2: F2,
-        output2: Option<Result<F2::Output, Box<dyn Any + Send>>>,
-    }
-}
-
-#[cfg(feature = "std")]
-impl<F1: CompletionFuture, F2: CompletionFuture> CompletionFuture for Zip<F1, F2> {
-    type Output = (F1::Output, F2::Output);
-
-    unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut this = self.project();
-
-        if this.output1.is_none() {
-            match catch_unwind(AssertUnwindSafe(|| this.future1.as_mut().poll(cx))) {
-                Ok(Poll::Ready(output)) => {
-                    *this.output1 = Some(Ok(output));
-                }
-                Ok(Poll::Pending) => {}
-                Err(payload) => {
-                    *this.output1 = Some(Err(payload));
-                }
-            }
-        }
-        if this.output2.is_none() {
-            match catch_unwind(AssertUnwindSafe(|| this.future2.as_mut().poll(cx))) {
-                Ok(Poll::Ready(output)) => {
-                    *this.output2 = Some(Ok(output));
-                }
-                Ok(Poll::Pending) => {}
-                Err(payload) => {
-                    *this.output2 = Some(Err(payload));
-                }
-            }
-        }
-
-        if this.output1.is_some() && this.output2.is_some() {
-            let output1 = this.output1.take().unwrap();
-            let output2 = this.output2.take().unwrap();
-            let (output1, output2) = match (output1, output2) {
-                (Ok(output1), Ok(output2)) => (output1, output2),
-                (Err(output1), _) => panic!(output1),
-                (_, Err(output2)) => panic!(output2),
-            };
-            Poll::Ready((output1, output2))
-        } else {
-            Poll::Pending
-        }
-    }
-}
-
 /// Extension trait for converting [`Future`]s to [`CompletionFuture`]s.
 pub trait FutureExt: Future + Sized {
-    /// Make sure that the future will complete. Equivalent to [`MustComplete::new`].
+    /// Convert this future into a [`CompletionFuture`].
     ///
     /// # Examples
     ///
     /// ```
     /// use completion::FutureExt;
     ///
-    /// let completion_future = async { 19 }.must_complete();
+    /// let completion_future = async { 19 }.into_completion();
     /// ```
-    fn must_complete(self) -> MustComplete<Self> {
-        MustComplete::new(self)
+    fn into_completion(self) -> Adapter<Self> {
+        Adapter(self)
     }
 }
 impl<T: Future> FutureExt for T {}

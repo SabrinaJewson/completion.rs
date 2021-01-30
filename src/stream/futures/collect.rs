@@ -57,6 +57,9 @@ where
 
         Poll::Pending
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().stream.poll_cancel(cx)
+    }
 }
 
 impl<S, C> Future for Collect<S, C>

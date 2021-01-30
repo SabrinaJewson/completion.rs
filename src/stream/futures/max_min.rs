@@ -41,6 +41,9 @@ where
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.project().inner.poll(cx)
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().inner.poll_cancel(cx)
+    }
 }
 
 impl<S> Future for Max<S>
@@ -98,6 +101,9 @@ where
             }
         }
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().stream.poll_cancel(cx)
+    }
 }
 
 impl<S, F> Future for MaxBy<S, F>
@@ -154,6 +160,9 @@ where
             }
         }
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().stream.poll_cancel(cx)
+    }
 }
 
 impl<S, B, F> Future for MaxByKey<S, B, F>
@@ -196,6 +205,9 @@ where
 
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.project().inner.poll(cx)
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().inner.poll_cancel(cx)
     }
 }
 
@@ -254,6 +266,9 @@ where
             }
         }
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().stream.poll_cancel(cx)
+    }
 }
 
 impl<S, F> Future for MinBy<S, F>
@@ -309,6 +324,9 @@ where
                 None => break Poll::Ready(this.min.take().map(|(item, _)| item)),
             }
         }
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().stream.poll_cancel(cx)
     }
 }
 

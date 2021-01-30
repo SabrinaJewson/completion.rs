@@ -41,6 +41,9 @@ where
             }
         }
     }
+    unsafe fn poll_cancel(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.stream.poll_cancel(cx)
+    }
 }
 
 impl<S: Unpin + ?Sized> Future for Nth<'_, S>

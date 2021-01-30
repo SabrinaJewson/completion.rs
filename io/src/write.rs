@@ -194,6 +194,9 @@ impl CompletionFuture for WriteSlice<'_, '_> {
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Future::poll(self, cx)
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+        Poll::Ready(())
+    }
 }
 
 /// Future for [`write_vectored`](AsyncWriteWith::write_vectored) on a byte slice (`&mut [u8]`).
@@ -217,6 +220,9 @@ impl CompletionFuture for WriteVectoredSlice<'_, '_> {
 
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Future::poll(self, cx)
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+        Poll::Ready(())
     }
 }
 
@@ -263,6 +269,9 @@ impl CompletionFuture for WriteVec<'_> {
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Future::poll(self, cx)
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+        Poll::Ready(())
+    }
 }
 
 /// Future for [`write_vectored`](AsyncWriteWith::write_vectored) on a [`Vec<u8>`](Vec).
@@ -284,6 +293,9 @@ impl CompletionFuture for WriteVectoredVec<'_> {
 
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Future::poll(self, cx)
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+        Poll::Ready(())
     }
 }
 
@@ -333,6 +345,9 @@ impl<'a, T: AsyncWriteWith<'a>> CompletionFuture for DefaultWriteVectored<'a, T>
 
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Pin::map_unchecked_mut(self, |this| &mut this.future).poll(cx)
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        Pin::map_unchecked_mut(self, |this| &mut this.future).poll_cancel(cx)
     }
 }
 impl<'a, T: AsyncWriteWith<'a>> Future for DefaultWriteVectored<'a, T>

@@ -159,18 +159,28 @@ fn r#return() {
 
 #[test]
 fn nested() {
-    let stream = completion_stream! {
+    let stream_1 = completion_stream! {
         for i in 0..3 {
             yield i;
         }
     };
-    pin!(stream);
+    pin!(stream_1);
 
-    let stream = completion_stream! {
-        while let Some(item) = stream.next().await {
+    let stream_2 = completion_stream! {
+        while let Some(item) = stream_1.next().await {
             yield item * 2;
         }
     };
 
-    assert_eq!(block_on(stream.collect::<Vec<_>>()), [0, 2, 4]);
+    assert_eq!(block_on(stream_2.collect::<Vec<_>>()), [0, 2, 4]);
+}
+
+#[test]
+fn send() {
+    fn requires_send<T: Send>(_: T) {}
+
+    requires_send(completion_stream! {});
+    requires_send(completion_stream! {
+        yield_now().await;
+    });
 }

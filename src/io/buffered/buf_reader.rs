@@ -165,6 +165,12 @@ impl<R: AsyncRead> CompletionFuture for ReadBufReader<'_, R> {
             }
         }
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        match self.project().state.project() {
+            ReadBufReaderStateProj::Bypass { fut } => fut.poll_cancel(cx),
+            ReadBufReaderStateProj::FillBuf { fut, .. } => fut.poll_cancel(cx),
+        }
+    }
 }
 impl<'a, R: AsyncRead> Future for ReadBufReader<'a, R>
 where
@@ -227,6 +233,13 @@ impl<'a, R: AsyncRead> CompletionFuture for FillBufBufReader<'a, R> {
             this.buf.take().expect("polled after completion"),
         )
         .filled()[*this.pos..]))
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        if let Some(fut) = self.project().fut.as_pin_mut() {
+            fut.poll_cancel(cx)
+        } else {
+            Poll::Ready(())
+        }
     }
 }
 impl<'a, R: AsyncRead> Future for FillBufBufReader<'a, R>

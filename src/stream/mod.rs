@@ -13,7 +13,7 @@ use completion_core::CompletionFuture;
 pub use completion_core::CompletionStream;
 use futures_core::Stream;
 
-use super::MustComplete;
+use super::{Adapter, MustComplete};
 
 mod adapters;
 pub use adapters::*;
@@ -29,7 +29,7 @@ pub use from_completion_stream::FromCompletionStream;
 
 /// Extension trait for [`CompletionStream`].
 pub trait CompletionStreamExt: CompletionStream {
-    /// A convenience for calling [`CompletionStream::poll_next`] on [`Unpin`] futures.
+    /// A convenience for calling [`CompletionStream::poll_next`] on [`Unpin`] streams.
     ///
     /// # Safety
     ///
@@ -41,6 +41,27 @@ pub trait CompletionStreamExt: CompletionStream {
         Pin::new(self).poll_next(cx)
     }
 
+    /// A convenience for calling [`CompletionStream::poll_cancel`] on [`Unpin`] streams.
+    ///
+    /// # Safety
+    ///
+    /// Identical to [`CompletionStream::poll_cancel`].
+    unsafe fn poll_cancel(&mut self, cx: &mut Context<'_>) -> Poll<()>
+    where
+        Self: Unpin,
+    {
+        Pin::new(self).poll_cancel(cx)
+    }
+
+    /// Make sure that the stream will complete. Any requests to cancel the stream through
+    /// [`poll_cancel`](CompletionStream::poll_cancel) will be ignored.
+    fn must_complete(self) -> MustComplete<Self>
+    where
+        Self: Sized,
+    {
+        MustComplete { inner: self }
+    }
+
     /// Get the next item in the stream.
     ///
     /// # Examples
@@ -50,7 +71,7 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// let mut stream = stream::iter(0..3).must_complete();
+    /// let mut stream = stream::iter(0..3).into_completion();
     /// assert_eq!(stream.next().await, Some(0));
     /// assert_eq!(stream.next().await, Some(1));
     /// assert_eq!(stream.next().await, Some(2));
@@ -73,8 +94,8 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// let stream_1 = stream::iter(3..7).must_complete();
-    /// let stream_2 = stream::iter(&[8, 2, 4]).must_complete();
+    /// let stream_1 = stream::iter(3..7).into_completion();
+    /// let stream_2 = stream::iter(&[8, 2, 4]).into_completion();
     ///
     /// assert_eq!(stream_1.count().await, 4);
     /// assert_eq!(stream_2.count().await, 3);
@@ -96,8 +117,8 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// assert_eq!(stream::iter(3..7).must_complete().last().await, Some(6));
-    /// assert_eq!(stream::empty::<String>().must_complete().last().await, None);
+    /// assert_eq!(stream::iter(3..7).into_completion().last().await, Some(6));
+    /// assert_eq!(stream::empty::<String>().into_completion().last().await, None);
     /// # });
     /// ```
     fn last(self) -> Last<Self>
@@ -116,8 +137,8 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// assert_eq!(stream::iter(3..7).must_complete().nth(2).await, Some(5));
-    /// assert_eq!(stream::iter(3..7).must_complete().nth(10).await, None);
+    /// assert_eq!(stream::iter(3..7).into_completion().nth(2).await, Some(5));
+    /// assert_eq!(stream::iter(3..7).into_completion().nth(10).await, None);
     /// # });
     /// ```
     fn nth(&mut self, n: usize) -> Nth<'_, Self>
@@ -142,7 +163,7 @@ pub trait CompletionStreamExt: CompletionStream {
     ///
     /// # completion::future::block_on(completion::completion_async! {
     /// let a = [0, 1, 2, 3, 4, 5];
-    /// let mut stream = stream::iter(&a).must_complete().step_by(2);
+    /// let mut stream = stream::iter(&a).into_completion().step_by(2);
     ///
     /// assert_eq!(stream.next().await, Some(&0));
     /// assert_eq!(stream.next().await, Some(&2));
@@ -166,8 +187,8 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// let mut stream = stream::iter(4..6).must_complete()
-    ///     .chain(stream::iter(6..10).must_complete());
+    /// let mut stream = stream::iter(4..6).into_completion()
+    ///     .chain(stream::iter(6..10).into_completion());
     ///
     /// assert_eq!(stream.next().await, Some(4));
     /// assert_eq!(stream.next().await, Some(5));
@@ -196,7 +217,7 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// let mut stream = stream::iter(0..5).must_complete().map(|x| x * 2 + 4);
+    /// let mut stream = stream::iter(0..5).into_completion().map(|x| x * 2 + 4);
     ///
     /// assert_eq!(stream.next().await, Some(4));
     /// assert_eq!(stream.next().await, Some(6));
@@ -223,7 +244,7 @@ pub trait CompletionStreamExt: CompletionStream {
     ///
     /// # completion::future::block_on(completion_async_move! {
     /// let mut stream = stream::iter(0..5)
-    ///     .must_complete()
+    ///     .into_completion()
     ///     .then(|x| completion_async_move!(x * 2 + 4));
     ///
     /// futures_lite::pin!(stream);
@@ -252,7 +273,7 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// stream::iter(0..8).must_complete().for_each(|num| println!("{}", num)).await;
+    /// stream::iter(0..8).into_completion().for_each(|num| println!("{}", num)).await;
     /// # });
     /// ```
     fn for_each<F: FnMut(Self::Item)>(self, f: F) -> ForEach<Self, F>
@@ -271,7 +292,7 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// let mut stream = stream::iter(1..=10).must_complete().filter(|n| n % 3 == 0);
+    /// let mut stream = stream::iter(1..=10).into_completion().filter(|n| n % 3 == 0);
     ///
     /// assert_eq!(stream.next().await, Some(3));
     /// assert_eq!(stream.next().await, Some(6));
@@ -300,7 +321,7 @@ pub trait CompletionStreamExt: CompletionStream {
     ///
     /// # completion::future::block_on(completion::completion_async! {
     /// let strings = ["5", "!", "2", "NaN", "6", ""];
-    /// let stream = stream::iter(&strings).must_complete();
+    /// let stream = stream::iter(&strings).into_completion();
     /// let mut stream = stream.filter_map(|s| s.parse::<i32>().ok());
     ///
     /// assert_eq!(stream.next().await, Some(5));
@@ -340,7 +361,7 @@ pub trait CompletionStreamExt: CompletionStream {
     ///
     /// # completion::future::block_on(completion::completion_async! {
     /// let string = "Hello";
-    /// let mut stream = stream::iter(string.chars()).must_complete().enumerate();
+    /// let mut stream = stream::iter(string.chars()).into_completion().enumerate();
     ///
     /// assert_eq!(stream.next().await, Some((0, 'H')));
     /// assert_eq!(stream.next().await, Some((1, 'e')));
@@ -372,7 +393,7 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::{stream, pin};
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// let mut stream = stream::iter("Hello!\n".chars()).must_complete().peekable();
+    /// let mut stream = stream::iter("Hello!\n".chars()).into_completion().peekable();
     ///
     /// let mut s = String::new();
     /// while stream.peek_unpin().await != Some(&'\n') {
@@ -399,7 +420,7 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// let stream = stream::iter("   Hello world!".chars()).must_complete();
+    /// let stream = stream::iter("   Hello world!".chars()).into_completion();
     /// let text: String = stream.skip_while(char::is_ascii_whitespace).collect().await;
     /// assert_eq!(text, "Hello world!");
     /// # });
@@ -421,7 +442,7 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// let stream = stream::iter("Hello world!\nFoo bar".chars()).must_complete();
+    /// let stream = stream::iter("Hello world!\nFoo bar".chars()).into_completion();
     /// let text: String = stream.take_while(|&c| c != '\n').collect().await;
     /// assert_eq!(text, "Hello world!");
     /// # });
@@ -443,7 +464,7 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// let stream = stream::iter(0..10).must_complete();
+    /// let stream = stream::iter(0..10).into_completion();
     /// assert_eq!(stream.skip(5).collect::<Vec<_>>().await, [5, 6, 7, 8, 9]);
     /// # });
     /// ```
@@ -463,7 +484,7 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// let stream = stream::repeat(19).must_complete();
+    /// let stream = stream::repeat(19).into_completion();
     /// assert_eq!(stream.take(5).collect::<Vec<_>>().await, [19, 19, 19, 19, 19]);
     /// # });
     /// ```
@@ -488,8 +509,8 @@ pub trait CompletionStreamExt: CompletionStream {
     ///
     /// # completion::future::block_on(completion::completion_async! {
     /// let s: String = stream::iter(&["alpha", "beta", "gamma"])
-    ///     .must_complete()
-    ///     .flat_map(|s| stream::iter(s.chars()).must_complete())
+    ///     .into_completion()
+    ///     .flat_map(|s| stream::iter(s.chars()).into_completion())
     ///     .collect()
     ///     .await;
     ///
@@ -517,10 +538,10 @@ pub trait CompletionStreamExt: CompletionStream {
     ///
     /// # completion::future::block_on(completion::completion_async! {
     /// let streams = vec![
-    ///     stream::iter(0..5).must_complete(),
-    ///     stream::iter(5..7).must_complete(),
+    ///     stream::iter(0..5).into_completion(),
+    ///     stream::iter(5..7).into_completion(),
     /// ];
-    /// let v: Vec<u8> = stream::iter(streams).must_complete().flatten().collect().await;
+    /// let v: Vec<u8> = stream::iter(streams).into_completion().flatten().collect().await;
     /// assert_eq!(v, &[0, 1, 2, 3, 4, 5, 6]);
     /// # });
     /// ```
@@ -532,7 +553,9 @@ pub trait CompletionStreamExt: CompletionStream {
         Flatten::new(self)
     }
 
-    /// Fuse the stream so that it is guaranteed to continue to yield `None` when exhausted.
+    /// Fuse the stream so that it is guaranteed to continue to yield [`None`] when exhausted.
+    ///
+    /// If the stream is cancelled, it is also guaranteed to continue to yield [`None`].
     ///
     /// # Examples
     ///
@@ -541,7 +564,7 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// let mut stream = stream::once(5).must_complete().fuse();
+    /// let mut stream = stream::once(5).into_completion().fuse();
     /// assert_eq!(stream.next().await, Some(5));
     /// assert_eq!(stream.next().await, None);
     /// assert_eq!(stream.next().await, None);
@@ -565,7 +588,7 @@ pub trait CompletionStreamExt: CompletionStream {
     ///
     /// # completion::future::block_on(completion::completion_async! {
     /// let sum = stream::iter(0..16)
-    ///     .must_complete()
+    ///     .into_completion()
     ///     .inspect(|x| println!("about to filter: {}", x))
     ///     .filter(|x| x % 2 == 0)
     ///     .inspect(|x| println!("made it through filter: {}", x))
@@ -678,11 +701,11 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// assert!(stream::iter(0..10).must_complete().all(|x| x < 10).await);
+    /// assert!(stream::iter(0..10).into_completion().all(|x| x < 10).await);
     ///
-    /// assert!(!stream::iter(0..8).must_complete().all(|x| x < 7).await);
+    /// assert!(!stream::iter(0..8).into_completion().all(|x| x < 7).await);
     ///
-    /// assert!(stream::empty::<()>().must_complete().all(|_| false).await);
+    /// assert!(stream::empty::<()>().into_completion().all(|_| false).await);
     /// # });
     /// ```
     fn all<F: FnMut(Self::Item) -> bool>(&mut self, f: F) -> All<'_, Self, F>
@@ -705,11 +728,11 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// assert!(stream::iter(0..10).must_complete().any(|x| x == 9).await);
+    /// assert!(stream::iter(0..10).into_completion().any(|x| x == 9).await);
     ///
-    /// assert!(!stream::iter(0..8).must_complete().all(|x| x == 9).await);
+    /// assert!(!stream::iter(0..8).into_completion().all(|x| x == 9).await);
     ///
-    /// assert!(!stream::empty::<()>().must_complete().any(|_| true).await);
+    /// assert!(!stream::empty::<()>().into_completion().any(|_| true).await);
     /// # });
     /// ```
     fn any<F: FnMut(Self::Item) -> bool>(&mut self, f: F) -> Any<'_, Self, F>
@@ -731,7 +754,7 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// let mut stream = stream::iter(1..10).must_complete();
+    /// let mut stream = stream::iter(1..10).into_completion();
     ///
     /// // Find the first even number.
     /// assert_eq!(stream.find(|x| x % 2 == 0).await, Some(2));
@@ -762,7 +785,7 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// let mut stream = stream::iter(&["lol", "NaN", "2", "5"]).must_complete();
+    /// let mut stream = stream::iter(&["lol", "NaN", "2", "5"]).into_completion();
     ///
     /// assert_eq!(stream.find_map(|s| s.parse().ok()).await, Some(2));
     /// assert_eq!(stream.find_map(|s| s.parse().ok()).await, Some(5));
@@ -799,7 +822,7 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// let mut stream = stream::iter(1..10).must_complete();
+    /// let mut stream = stream::iter(1..10).into_completion();
     ///
     /// assert_eq!(stream.position(|x| x == 4).await, Some(3));
     /// assert_eq!(stream.position(|x| x == 11).await, None);
@@ -825,12 +848,12 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// assert_eq!(stream::iter(&[1, 5, 2, 7, 4]).must_complete().max().await, Some(&7));
-    /// assert_eq!(stream::iter(<Vec<()>>::new()).must_complete().max().await, None);
+    /// assert_eq!(stream::iter(&[1, 5, 2, 7, 4]).into_completion().max().await, Some(&7));
+    /// assert_eq!(stream::iter(<Vec<()>>::new()).into_completion().max().await, None);
     ///
     /// let first = 5;
     /// let second = 5;
-    /// let r = stream::iter(vec![&first, &second]).must_complete().max().await.unwrap();
+    /// let r = stream::iter(vec![&first, &second]).into_completion().max().await.unwrap();
     /// // `first` and `second` are equal in value, but `second` is chosen because it is later.
     /// assert_eq!(r as *const _, &second as *const _);
     /// # });
@@ -856,7 +879,7 @@ pub trait CompletionStreamExt: CompletionStream {
     ///
     /// # completion::future::block_on(completion::completion_async! {
     /// let a = [("a", 1), ("b", 7), ("c", 2), ("d", 7), ("e", 4)];
-    /// let max = stream::iter(&a).must_complete().max_by(|(_, x), (_, y)| x.cmp(y)).await;
+    /// let max = stream::iter(&a).into_completion().max_by(|(_, x), (_, y)| x.cmp(y)).await;
     /// assert_eq!(max, Some(&("d", 7)));
     /// # });
     /// ```
@@ -881,7 +904,7 @@ pub trait CompletionStreamExt: CompletionStream {
     ///
     /// # completion::future::block_on(completion::completion_async! {
     /// let a: &[i32] = &[-3, 2, 10, 5, -10];
-    /// let max = stream::iter(a).must_complete().max_by_key(|x| x.abs()).await;
+    /// let max = stream::iter(a).into_completion().max_by_key(|x| x.abs()).await;
     /// assert_eq!(max, Some(&-10));
     /// # });
     /// ```
@@ -906,12 +929,12 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// assert_eq!(stream::iter(&[5, 7, 1, 3, 2]).must_complete().min().await, Some(&1));
-    /// assert_eq!(stream::iter(<Vec<()>>::new()).must_complete().min().await, None);
+    /// assert_eq!(stream::iter(&[5, 7, 1, 3, 2]).into_completion().min().await, Some(&1));
+    /// assert_eq!(stream::iter(<Vec<()>>::new()).into_completion().min().await, None);
     ///
     /// let first = 5;
     /// let second = 5;
-    /// let r = stream::iter(vec![&first, &second]).must_complete().min().await.unwrap();
+    /// let r = stream::iter(vec![&first, &second]).into_completion().min().await.unwrap();
     /// // `first` and `second` are equal in value, but `first` is chosen because it is earlier.
     /// assert_eq!(r as *const _, &first as *const _);
     /// # });
@@ -937,7 +960,7 @@ pub trait CompletionStreamExt: CompletionStream {
     ///
     /// # completion::future::block_on(completion::completion_async! {
     /// let a = [("a", 3), ("b", 7), ("c", 1), ("d", 1), ("e", 4)];
-    /// let min = stream::iter(&a).must_complete().min_by(|(_, x), (_, y)| x.cmp(y)).await;
+    /// let min = stream::iter(&a).into_completion().min_by(|(_, x), (_, y)| x.cmp(y)).await;
     /// assert_eq!(min, Some(&("c", 1)));
     /// # });
     /// ```
@@ -962,7 +985,7 @@ pub trait CompletionStreamExt: CompletionStream {
     ///
     /// # completion::future::block_on(completion::completion_async! {
     /// let a: &[i32] = &[-10, 9, 23, -2, 8, 2];
-    /// let min = stream::iter(a).must_complete().min_by_key(|x| x.abs()).await;
+    /// let min = stream::iter(a).into_completion().min_by_key(|x| x.abs()).await;
     /// assert_eq!(min, Some(&-2));
     /// # });
     /// ```
@@ -989,7 +1012,7 @@ pub trait CompletionStreamExt: CompletionStream {
     ///
     /// # completion::future::block_on(completion::completion_async! {
     /// let a = [1, 2, 3];
-    /// let v: Vec<i32> = stream::iter(&a).must_complete().copied().collect().await;
+    /// let v: Vec<i32> = stream::iter(&a).into_completion().copied().collect().await;
     /// assert_eq!(v, [1, 2, 3]);
     /// # });
     /// ```
@@ -1012,7 +1035,7 @@ pub trait CompletionStreamExt: CompletionStream {
     ///
     /// # completion::future::block_on(completion::completion_async! {
     /// let a = ["1".to_owned(), "2".to_owned(), "3".to_owned()];
-    /// let v: Vec<String> = stream::iter(&a).must_complete().cloned().collect().await;
+    /// let v: Vec<String> = stream::iter(&a).into_completion().cloned().collect().await;
     /// assert_eq!(v, ["1".to_owned(), "2".to_owned(), "3".to_owned()]);
     /// # });
     /// ```
@@ -1035,7 +1058,7 @@ pub trait CompletionStreamExt: CompletionStream {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// let mut stream = stream::iter(0..3).must_complete().cycle();
+    /// let mut stream = stream::iter(0..3).into_completion().cycle();
     ///
     /// assert_eq!(stream.next().await, Some(0));
     /// assert_eq!(stream.next().await, Some(1));
@@ -1076,9 +1099,9 @@ pub trait CompletionStreamExt: CompletionStream {
     /// # let some_condition = true;
     /// // These streams are different types, but boxing them makes them the same type.
     /// let stream = if some_condition {
-    ///     stream::iter(2..18).must_complete().boxed()
+    ///     stream::iter(2..18).into_completion().boxed()
     /// } else {
-    ///     stream::iter(vec![5, 3, 7, 8, 2]).must_complete().boxed()
+    ///     stream::iter(vec![5, 3, 7, 8, 2]).into_completion().boxed()
     /// };
     /// ```
     #[cfg(feature = "alloc")]
@@ -1102,9 +1125,9 @@ pub trait CompletionStreamExt: CompletionStream {
     /// # let some_condition = true;
     /// // These streams are different types, but boxing them makes them the same type.
     /// let stream = if some_condition {
-    ///     stream::iter(2..18).must_complete().boxed_local()
+    ///     stream::iter(2..18).into_completion().boxed_local()
     /// } else {
-    ///     stream::iter(vec![5, 3, 7, 8, 2]).must_complete().boxed_local()
+    ///     stream::iter(vec![5, 3, 7, 8, 2]).into_completion().boxed_local()
     /// };
     /// ```
     #[cfg(feature = "alloc")]
@@ -1131,8 +1154,7 @@ pub type LocalBoxCompletionStream<'a, T> = Pin<Box<dyn CompletionStream<Item = T
 
 /// Extension trait for converting [`Stream`]s to [`CompletionStream`]s.
 pub trait StreamExt: Stream + Sized {
-    /// Make sure that each element in the stream will complete. Equivalent to
-    /// [`MustComplete::new`].
+    /// Convert this stream into a [`CompletionStream`].
     ///
     /// # Examples
     ///
@@ -1140,10 +1162,10 @@ pub trait StreamExt: Stream + Sized {
     /// use completion::StreamExt;
     /// use futures_lite::stream;
     ///
-    /// let completion_stream = stream::iter(&[1, 1, 2, 3, 5]).must_complete();
+    /// let completion_stream = stream::iter(&[1, 1, 2, 3, 5]).into_completion();
     /// ```
-    fn must_complete(self) -> MustComplete<Self> {
-        MustComplete::new(self)
+    fn into_completion(self) -> Adapter<Self> {
+        Adapter(self)
     }
 }
 impl<T: Stream> StreamExt for T {}

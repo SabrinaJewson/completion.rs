@@ -31,7 +31,10 @@ where
         self.project()
             .stream
             .poll_next(cx)
-            .map(<Option<S::Item>>::cloned)
+            .map(<Option<&_>>::cloned)
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().stream.poll_cancel(cx)
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.stream.size_hint()
@@ -75,7 +78,10 @@ where
         self.project()
             .stream
             .poll_next(cx)
-            .map(<Option<S::Item>>::copied)
+            .map(<Option<&_>>::copied)
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().stream.poll_cancel(cx)
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.stream.size_hint()

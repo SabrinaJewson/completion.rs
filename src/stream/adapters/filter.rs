@@ -37,6 +37,9 @@ impl<S: CompletionStream, F: FnMut(&S::Item) -> bool> CompletionStream for Filte
             }
         }
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().stream.poll_cancel(cx)
+    }
     fn size_hint(&self) -> (usize, Option<usize>) {
         let (_, high) = self.stream.size_hint();
         (0, high)
@@ -92,6 +95,9 @@ where
                 None => break Poll::Ready(None),
             }
         }
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().stream.poll_cancel(cx)
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
         let (_, upper) = self.stream.size_hint();

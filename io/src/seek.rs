@@ -82,6 +82,9 @@ impl<T: AsRef<[u8]>> CompletionFuture for SeekCursor<'_, T> {
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Future::poll(self, cx)
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+        Poll::Ready(())
+    }
 }
 
 #[cfg(test)]

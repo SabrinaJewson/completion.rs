@@ -35,13 +35,15 @@ impl<S: CompletionStream> CompletionStream for StepBy<S> {
                     if *this.i == 0 {
                         *this.i = *this.step - 1;
                         break Poll::Ready(Some(v));
-                    } else {
-                        *this.i -= 1;
                     }
+                    *this.i -= 1;
                 }
                 None => break Poll::Ready(None),
             }
         }
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().stream.poll_cancel(cx)
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
         let (low, high) = self.stream.size_hint();

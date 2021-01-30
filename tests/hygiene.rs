@@ -1,4 +1,4 @@
-#![cfg(all(feature = "macro", feature = "alloc"))]
+#![cfg(all(feature = "macro", feature = "std"))]
 #![no_implicit_prelude]
 #![no_std]
 
@@ -15,7 +15,7 @@ async fn _abc() {
     )
     .await;
 
-    ::completion::completion_stream! {
+    let _ = ::completion::completion_stream! {
         async {}.await;
         yield 1;
     };

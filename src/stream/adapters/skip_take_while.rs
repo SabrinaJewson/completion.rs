@@ -53,6 +53,9 @@ where
             }
         }
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().stream.poll_cancel(cx)
+    }
     fn size_hint(&self) -> (usize, Option<usize>) {
         if self.skipping {
             (0, self.stream.size_hint().1)
@@ -118,6 +121,14 @@ where
             }
         }
         Poll::Ready(None)
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        let this = self.project();
+        if *this.taking {
+            this.stream.poll_cancel(cx)
+        } else {
+            Poll::Ready(())
+        }
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
         if self.taking {

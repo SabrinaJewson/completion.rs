@@ -37,7 +37,11 @@ where
             }
         }
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().stream.poll_cancel(cx)
+    }
 }
+
 impl<S> Future for Count<S>
 where
     S: CompletionStream + Stream<Item = <S as CompletionStream>::Item>,

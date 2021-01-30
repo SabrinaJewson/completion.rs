@@ -38,6 +38,9 @@ where
             .poll_next(cx)
             .map(|value| value.map(this.f))
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().stream.poll_cancel(cx)
+    }
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.stream.size_hint()
     }
@@ -91,22 +94,29 @@ where
     unsafe fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
 
-        let fut = match this.fut.as_mut().as_pin_mut() {
-            Some(fut) => fut,
-            None => match ready!(this.stream.poll_next(cx)) {
+        if this.fut.is_none() {
+            match ready!(this.stream.poll_next(cx)) {
                 Some(item) => {
                     this.fut.set(Some((this.f)(item)));
-                    this.fut.as_mut().as_pin_mut().unwrap()
                 }
                 None => {
                     return Poll::Ready(None);
                 }
-            },
-        };
+            }
+        }
 
-        let val = ready!(fut.poll(cx));
+        let val = ready!(this.fut.as_mut().as_pin_mut().unwrap().poll(cx));
         this.fut.set(None);
         Poll::Ready(Some(val))
+    }
+
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        let mut this = self.project();
+        if let Some(fut) = this.fut.as_mut().as_pin_mut() {
+            fut.poll_cancel(cx)
+        } else {
+            this.stream.poll_cancel(cx)
+        }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {

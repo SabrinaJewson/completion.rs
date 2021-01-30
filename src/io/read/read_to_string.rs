@@ -100,6 +100,13 @@ impl<'a, T: AsyncRead + ?Sized + 'a> CompletionFuture for ReadToString<'a, T> {
 
         Poll::Ready(res)
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        if let Some(inner) = self.project().inner.as_pin_mut() {
+            inner.poll_cancel(cx)
+        } else {
+            Poll::Ready(())
+        }
+    }
 }
 impl<'a, T: AsyncRead + ?Sized + 'a> Future for ReadToString<'a, T>
 where

@@ -37,6 +37,9 @@ impl<S: CompletionStream> CompletionStream for Skip<S> {
         }
         this.stream.poll_next(cx)
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().stream.poll_cancel(cx)
+    }
     fn size_hint(&self) -> (usize, Option<usize>) {
         let (lower, upper) = self.stream.size_hint();
         (
@@ -85,6 +88,14 @@ impl<S: CompletionStream> CompletionStream for Take<S> {
             *this.to_take -= 1;
             item
         })
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        let this = self.project();
+        if *this.to_take == 0 {
+            Poll::Ready(())
+        } else {
+            this.stream.poll_cancel(cx)
+        }
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
         if self.to_take == 0 {

@@ -54,6 +54,13 @@ impl<'a, R: AsyncBufRead + ?Sized + 'a> CompletionFuture for ReadLine<'a, R> {
         }
         this.inner.as_pin_mut().unwrap().poll(cx)
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        if let Some(inner) = self.project().inner.as_pin_mut() {
+            inner.poll_cancel(cx)
+        } else {
+            Poll::Ready(())
+        }
+    }
 }
 impl<'a, R: AsyncBufRead + ?Sized + 'a> Future for ReadLine<'a, R>
 where

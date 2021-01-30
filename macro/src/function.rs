@@ -73,13 +73,12 @@ pub(crate) fn transform(mut f: AnyFn, boxed: Option<Boxed>, crate_path: &CratePa
         #crate_path_async_span::CompletionFuture<Output = #ret_ty> + #ret_lifetime
     };
     let ret_ty = if let Some(boxed) = &boxed {
-        let crate_path = crate_path.with_span(boxed.span);
         let send = if boxed.send {
             Some(quote_spanned!(boxed.span=> + ::core::marker::Send))
         } else {
             None
         };
-        quote_spanned!(boxed.span=> ::core::pin::Pin<#crate_path::__reexports::Box<dyn #ret_ty_bounds #send>>)
+        quote_spanned!(boxed.span=> ::core::pin::Pin<::std::boxed::Box<dyn #ret_ty_bounds #send>>)
     } else {
         quote_spanned!(async_span=> impl #ret_ty_bounds)
     };
@@ -87,7 +86,7 @@ pub(crate) fn transform(mut f: AnyFn, boxed: Option<Boxed>, crate_path: &CratePa
 
     if let Some(block) = &mut f.block {
         // Transform the function body.
-        let body = crate::transform_async::transform(
+        let body = crate::block::transform(
             ExprAsync {
                 attrs: Vec::new(),
                 async_token: Token![async](async_span),
@@ -99,12 +98,10 @@ pub(crate) fn transform(mut f: AnyFn, boxed: Option<Boxed>, crate_path: &CratePa
                     stmts: mem::take(&mut block.stmts),
                 },
             },
-            false,
             crate_path,
         );
         let body = if let Some(boxed) = boxed {
-            let crate_path = crate_path.with_span(boxed.span);
-            quote_spanned!(boxed.span=> #crate_path::__reexports::Box::pin(#body))
+            quote_spanned!(boxed.span=> ::std::boxed::Box::pin(#body))
         } else {
             body
         };
@@ -195,9 +192,9 @@ mod tests {
         let output = quote! {
             #[attr]
             fn foo<'__completion_future>() -> impl c::CompletionFuture<Output = ()> + '__completion_future {
-                c::__make_completion_future(async move {
+                c::__completion_async(async move {
                     #[allow(unused_imports)]
-                    use c::__CompletionFutureIntoFutureUnsafe;
+                    use c::__CompletionFutureIntoAwaitable;
 
                     |_| fut.await;
                 })
@@ -229,11 +226,11 @@ mod tests {
                 T: '__completion_future,
                 Self: '__completion_future
             {
-                ::crate::path::__make_completion_future(async move {
+                ::crate::path::__completion_async(async move {
                     #[allow(unused_imports)]
-                    use ::crate::path::__CompletionFutureIntoFutureUnsafe;
+                    use ::crate::path::__CompletionFutureIntoAwaitable;
 
-                    ::crate::path::__FutureOrCompletionFuture(fut).__into_future_unsafe().await;
+                    ::crate::path::__FutureOrCompletionFuture(fut).__into_awaitable().await;
                 })
             }
         };
@@ -252,7 +249,7 @@ mod tests {
         let output = quote! {
             crate fn do_stuff<'__completion_future, '__life0>(
                 x: &'__life0 i32
-            ) -> ::core::pin::Pin<crate::__reexports::Box<
+            ) -> ::core::pin::Pin<::std::boxed::Box<
                 dyn crate::CompletionFuture<Output = ()> + '__completion_future + ::core::marker::Send
             >>
             where
@@ -280,20 +277,20 @@ mod tests {
             #[outer = "attributes"]
             async fn xyz() -> i32 {
                 #![inner(attributes)]
-                x.await;
+                x.await?
             }
         };
         let output = quote! {
             #[outer = "attributes"]
-            fn xyz<'__completion_future>() -> ::core::pin::Pin<c::__reexports::Box<
+            fn xyz<'__completion_future>() -> ::core::pin::Pin<::std::boxed::Box<
                 dyn c::CompletionFuture<Output = i32> + '__completion_future
             >> {
                 #![inner(attributes)]
-                c::__reexports::Box::pin(c::__make_completion_future(async move {
+                ::std::boxed::Box::pin(c::__completion_async(async move {
                     #[allow(unused_imports)]
-                    use c::__CompletionFutureIntoFutureUnsafe;
+                    use c::__CompletionFutureIntoAwaitable;
 
-                    c::__FutureOrCompletionFuture(x).__into_future_unsafe().await;
+                    c::__FutureOrCompletionFuture(x).__into_awaitable().await?
                 }))
             }
         };

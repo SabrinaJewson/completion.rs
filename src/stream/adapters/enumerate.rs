@@ -38,6 +38,9 @@ where
         *this.count += 1;
         Poll::Ready(Some((i, item)))
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().stream.poll_cancel(cx)
+    }
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.stream.size_hint()
     }

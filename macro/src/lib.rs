@@ -2,15 +2,18 @@
 //! directly, instead use `completion`.
 
 use proc_macro::TokenStream as TokenStream1;
-use proc_macro2::{Group, Span, TokenStream};
-use quote::{quote, ToTokens, TokenStreamExt};
+use proc_macro2::{Group, Literal, Punct, Span, TokenStream, TokenTree};
+use quote::{quote, quote_spanned, ToTokens, TokenStreamExt};
 use syn::parse::{self, Parse, ParseStream, Parser};
+use syn::punctuated::Punctuated;
+use syn::visit_mut::{self, VisitMut};
 use syn::{
-    token, AttrStyle, Attribute, Block, ExprAsync, Path, Signature, Stmt, Token, Visibility,
+    token, AttrStyle, Attribute, Block, Expr, ExprAsync, Path, Signature, Stmt, Token, Visibility,
 };
 
+mod block;
 mod function;
-mod transform_async;
+mod stream;
 
 #[proc_macro_attribute]
 pub fn completion(attr: TokenStream1, input: TokenStream1) -> TokenStream1 {
@@ -26,7 +29,7 @@ pub fn completion(attr: TokenStream1, input: TokenStream1) -> TokenStream1 {
     match input {
         CompletionInput::AsyncFn(f) => function::transform(f, boxed, &crate_path),
         CompletionInput::AsyncBlock(async_block, semi) => {
-            let tokens = transform_async::transform(async_block, false, &crate_path);
+            let tokens = block::transform(async_block, &crate_path);
             quote!(#tokens #semi)
         }
     }
@@ -185,7 +188,7 @@ fn completion_async_inner2(input: TokenStream, capture_move: bool) -> TokenStrea
         Ok(input) => input,
         Err(e) => return e.into_compile_error(),
     };
-    transform_async::transform(call_site_async(capture_move, stmts), false, &crate_path)
+    block::transform(call_site_async(capture_move, stmts), &crate_path)
 }
 
 #[proc_macro]
@@ -195,7 +198,7 @@ pub fn completion_stream_inner(input: TokenStream1) -> TokenStream1 {
         Ok(r) => r,
         Err(e) => return e.into_compile_error().into(),
     };
-    transform_async::transform(call_site_async(true, stmts), true, &crate_path).into()
+    stream::transform(call_site_async(true, stmts), &crate_path).into()
 }
 
 fn parse_bang_input(input: ParseStream<'_>) -> parse::Result<(CratePath, Vec<Stmt>)> {
@@ -243,5 +246,164 @@ impl CratePath {
         }
 
         CratePathWithSpan(&self.inner, span)
+    }
+}
+
+/// Transform the top level of a list of statements.
+fn transform_top_level(stmts: &mut [Stmt], crate_path: &CratePath, f: impl FnMut(&mut Expr)) {
+    struct Visitor<'a, F> {
+        crate_path: &'a CratePath,
+        f: F,
+    }
+
+    impl<F: FnMut(&mut Expr)> VisitMut for Visitor<'_, F> {
+        fn visit_expr_mut(&mut self, expr: &mut Expr) {
+            match expr {
+                Expr::Async(_) | Expr::Closure(_) => {
+                    // Don't do anything, we don't want to touch inner async blocks or closures.
+                }
+                Expr::Macro(expr_macro) => {
+                    // Normally we don't transform the bodies of macros as they could do anything
+                    // with the tokens they're given. However we special-case standard library
+                    // macros to allow.
+
+                    const SPECIAL_MACROS: &[&str] = &[
+                        "assert",
+                        "assert_eq",
+                        "assert_ne",
+                        "dbg",
+                        "debug_assert",
+                        "debug_assert_eq",
+                        "debug_assert_ne",
+                        "eprint",
+                        "eprintln",
+                        "format",
+                        "format_args",
+                        "matches",
+                        "panic",
+                        "print",
+                        "println",
+                        "todo",
+                        "unimplemented",
+                        "unreachable",
+                        "vec",
+                        "write",
+                        "writeln",
+                    ];
+
+                    let mut is_trusted =
+                        token_stream_starts_with(expr_macro.mac.path.to_token_stream(), {
+                            let crate_path = self.crate_path.with_span(Span::call_site());
+                            quote!(#crate_path::__special_macros::)
+                        });
+
+                    if !is_trusted
+                        && SPECIAL_MACROS
+                            .iter()
+                            .any(|name| expr_macro.mac.path.is_ident(name))
+                    {
+                        let macro_ident = expr_macro.mac.path.get_ident().unwrap();
+                        let crate_path = self.crate_path.with_span(macro_ident.span());
+                        let path = quote_spanned!(macro_ident.span()=> #crate_path::__special_macros::#macro_ident);
+                        expr_macro.mac.path = syn::parse2(path).unwrap();
+                        is_trusted = true;
+                    }
+
+                    if is_trusted {
+                        let last_segment = expr_macro.mac.path.segments.last().unwrap();
+
+                        match &*last_segment.ident.to_string() {
+                            "matches" => {
+                                let res =
+                                    expr_macro.mac.parse_body_with(|tokens: ParseStream<'_>| {
+                                        let expr = tokens.parse::<Expr>()?;
+                                        let rest = tokens.parse::<TokenStream>()?;
+                                        Ok((expr, rest))
+                                    });
+                                if let Ok((mut scrutinee, rest)) = res {
+                                    self.visit_expr_mut(&mut scrutinee);
+                                    expr_macro.mac.tokens = scrutinee.into_token_stream();
+                                    expr_macro.mac.tokens.extend(rest.into_token_stream());
+                                }
+                            }
+                            _ => {
+                                let res = expr_macro
+                                    .mac
+                                    .parse_body_with(<Punctuated<_, Token![,]>>::parse_terminated);
+                                if let Ok(mut exprs) = res {
+                                    for expr in &mut exprs {
+                                        self.visit_expr_mut(expr);
+                                    }
+                                    expr_macro.mac.tokens = exprs.into_token_stream();
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    visit_mut::visit_expr_mut(self, expr);
+                }
+            }
+            (self.f)(expr);
+        }
+        fn visit_item_mut(&mut self, _: &mut syn::Item) {
+            // Don't do anything, we don't want to touch inner items.
+        }
+    }
+
+    let mut visitor = Visitor { crate_path, f };
+    for stmt in stmts {
+        visitor.visit_stmt_mut(stmt);
+    }
+}
+
+fn token_stream_starts_with(tokens: TokenStream, prefix: TokenStream) -> bool {
+    let mut tokens = tokens.into_iter();
+
+    for prefix_token in prefix {
+        let token = match tokens.next() {
+            Some(token) => token,
+            None => return false,
+        };
+        if !token_tree_eq(&prefix_token, &token) {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn token_stream_eq(lhs: TokenStream, rhs: TokenStream) -> bool {
+    lhs.into_iter()
+        .zip(rhs)
+        .all(|(lhs, rhs)| token_tree_eq(&lhs, &rhs))
+}
+fn token_tree_eq(lhs: &TokenTree, rhs: &TokenTree) -> bool {
+    match (lhs, rhs) {
+        (TokenTree::Group(lhs), TokenTree::Group(rhs)) => group_eq(lhs, rhs),
+        (TokenTree::Ident(lhs), TokenTree::Ident(rhs)) => lhs == rhs,
+        (TokenTree::Punct(lhs), TokenTree::Punct(rhs)) => punct_eq(lhs, rhs),
+        (TokenTree::Literal(lhs), TokenTree::Literal(rhs)) => literal_eq(lhs, rhs),
+        (_, _) => false,
+    }
+}
+fn group_eq(lhs: &Group, rhs: &Group) -> bool {
+    lhs.delimiter() == rhs.delimiter() && token_stream_eq(lhs.stream(), rhs.stream())
+}
+fn punct_eq(lhs: &Punct, rhs: &Punct) -> bool {
+    lhs.as_char() == rhs.as_char() && lhs.spacing() == rhs.spacing()
+}
+fn literal_eq(lhs: &Literal, rhs: &Literal) -> bool {
+    lhs.to_string() == rhs.to_string()
+}
+
+struct OuterAttrs<'a>(&'a [Attribute]);
+impl ToTokens for OuterAttrs<'_> {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        tokens.append_all(
+            self.0
+                .iter()
+                .filter(|attr| matches!(attr.style, AttrStyle::Outer)),
+        )
     }
 }

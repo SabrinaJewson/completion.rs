@@ -40,6 +40,8 @@ mod test_utils {
     use completion_core::CompletionFuture;
     use completion_io::{AsyncBufReadWith, AsyncReadWith, AsyncWriteWith, ReadBufMut};
 
+    pub(crate) use crate::test_utils::*;
+
     #[derive(Debug)]
     pub(super) struct YieldingReader {
         items: VecDeque<Result<Vec<u8>>>,
@@ -62,10 +64,7 @@ mod test_utils {
         type ReadFuture = Yield<ReadFuture<'a>>;
 
         fn read(&'a mut self, buf: ReadBufMut<'a>) -> Self::ReadFuture {
-            Yield {
-                times: 1,
-                fut: ReadFuture { reader: self, buf },
-            }
+            Yield::once(ReadFuture { reader: self, buf })
         }
     }
     pub(super) struct ReadFuture<'a> {
@@ -92,6 +91,9 @@ mod test_utils {
                 None => Ok(()),
             })
         }
+        unsafe fn poll_cancel(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+            Poll::Ready(())
+        }
     }
     impl Future for ReadFuture<'_> {
         type Output = Result<()>;
@@ -104,10 +106,7 @@ mod test_utils {
         type FillBufFuture = Yield<FillBufFuture<'a>>;
 
         fn fill_buf(&'a mut self) -> Self::FillBufFuture {
-            Yield {
-                times: 1,
-                fut: FillBufFuture { reader: Some(self) },
-            }
+            Yield::once(FillBufFuture { reader: Some(self) })
         }
         fn consume(&mut self, amt: usize) {
             if amt == 0 {
@@ -137,6 +136,9 @@ mod test_utils {
                 None => Ok(&[]),
             })
         }
+        unsafe fn poll_cancel(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+            Poll::Ready(())
+        }
     }
 
     #[derive(Debug)]
@@ -163,14 +165,11 @@ mod test_utils {
         fn write(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture {
             assert!(!buf.is_empty(), "attempted to write an empty buffer");
             let result = self.results.pop_front().unwrap_or(Ok(0));
-            Yield {
-                times: 1,
-                fut: WriteFuture {
-                    writer: self,
-                    buf,
-                    result: Some(result.map_err(|e| e)),
-                },
-            }
+            Yield::once(WriteFuture {
+                writer: self,
+                buf,
+                result: Some(result.map_err(|e| e)),
+            })
         }
         fn write_vectored(&'a mut self, bufs: &'a [IoSlice<'a>]) -> Self::WriteVectoredFuture {
             completion_io::DefaultWriteVectored::new(self, bufs)
@@ -194,39 +193,8 @@ mod test_utils {
             this.writer.items.push(this.buf[..amt].to_vec());
             Poll::Ready(Ok(amt))
         }
-    }
-
-    pin_project_lite::pin_project! {
-        /// Future that yields once, before polling the inner future.
-        pub(super) struct Yield<F> {
-            times: usize,
-            #[pin]
-            fut: F,
+        unsafe fn poll_cancel(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+            Poll::Ready(())
         }
-    }
-    impl<F: CompletionFuture> CompletionFuture for Yield<F> {
-        type Output = F::Output;
-
-        unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-            let this = self.project();
-            if *this.times > 0 {
-                *this.times -= 1;
-                cx.waker().wake_by_ref();
-                Poll::Pending
-            } else {
-                this.fut.poll(cx)
-            }
-        }
-    }
-    impl<F: CompletionFuture + Future> Future for Yield<F> {
-        type Output = <F as CompletionFuture>::Output;
-
-        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-            unsafe { CompletionFuture::poll(self, cx) }
-        }
-    }
-
-    pub(super) fn now_or_never<F: Future>(fut: F) -> Option<F::Output> {
-        futures_lite::future::block_on(futures_lite::future::poll_once(fut))
     }
 }

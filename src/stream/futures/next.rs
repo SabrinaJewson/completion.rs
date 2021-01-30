@@ -30,6 +30,9 @@ where
     unsafe fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.stream.poll_next(cx)
     }
+    unsafe fn poll_cancel(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.stream.poll_cancel(cx)
+    }
 }
 
 impl<S: Unpin + ?Sized> Future for Next<'_, S>

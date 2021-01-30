@@ -26,6 +26,7 @@ pin_project! {
         reader: AliasableBox<R>,
         buf: AliasableBox<Vec<u8>>,
         // We want to support the above becoming unboxed in the future
+        #[pin]
         _pinned: PhantomPinned,
     }
 }
@@ -69,6 +70,13 @@ impl<R: AsyncBufRead> CompletionStream for Split<'_, R> {
 
             Some(Ok(mem::replace(buf, Vec::new())))
         })
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        if let Some(fut) = self.project().fut.as_pin_mut() {
+            fut.poll_cancel(cx)
+        } else {
+            Poll::Ready(())
+        }
     }
 }
 impl<'r, R: AsyncBufRead> Stream for Split<'r, R>

@@ -36,6 +36,10 @@ where
         }
         Poll::Ready(())
     }
+
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().stream.poll_cancel(cx)
+    }
 }
 
 impl<S, F> Future for ForEach<S, F>

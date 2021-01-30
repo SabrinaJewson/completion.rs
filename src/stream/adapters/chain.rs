@@ -40,6 +40,15 @@ where
         }
         this.b.poll_next(cx)
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        let mut this = self.project();
+
+        if let Some(a) = this.a.as_mut().as_pin_mut() {
+            a.poll_cancel(cx)
+        } else {
+            this.b.poll_cancel(cx)
+        }
+    }
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.a.as_ref().map_or_else(
             || self.b.size_hint(),

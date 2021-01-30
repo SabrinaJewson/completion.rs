@@ -69,6 +69,13 @@ impl<'a, T: AsyncWrite + ?Sized + 'a> CompletionFuture for WriteAll<'a, T> {
             this.fut.set(Some(writer.write(*this.buf)));
         }
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        if let Some(fut) = self.project().fut.as_pin_mut() {
+            fut.poll_cancel(cx)
+        } else {
+            Poll::Ready(())
+        }
+    }
 }
 impl<'a, T: AsyncWrite + ?Sized + 'a> Future for WriteAll<'a, T>
 where

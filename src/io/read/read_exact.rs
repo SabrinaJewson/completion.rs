@@ -80,6 +80,13 @@ impl<'a, T: AsyncRead + ?Sized + 'a> CompletionFuture for ReadExact<'a, T> {
             this.fut.set(Some(reader.read(read_buf.as_mut())));
         }
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        if let Some(fut) = self.project().fut.as_pin_mut() {
+            fut.poll_cancel(cx)
+        } else {
+            Poll::Ready(())
+        }
+    }
 }
 impl<'a, T: AsyncRead + ?Sized + 'a> Future for ReadExact<'a, T>
 where

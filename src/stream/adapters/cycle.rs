@@ -39,6 +39,9 @@ where
             this.stream.poll_next(cx)
         }
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().stream.poll_cancel(cx)
+    }
     fn size_hint(&self) -> (usize, Option<usize>) {
         match self.template.size_hint() {
             (0, Some(0)) => (0, Some(0)),

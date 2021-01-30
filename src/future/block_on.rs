@@ -109,39 +109,42 @@ const VTABLE: RawWakerVTable =
 fn test_block_on() {
     use futures_lite::future;
 
-    use crate::MustComplete;
+    use crate::FutureExt;
 
     assert_eq!(
-        block_on(MustComplete::new(async {
-            let val = 5;
-            let val_ref = &val;
-            let mut val_mut = 6;
-            let val_mut_ref = &mut val_mut;
+        block_on(
+            async {
+                let val = 5;
+                let val_ref = &val;
+                let mut val_mut = 6;
+                let val_mut_ref = &mut val_mut;
 
-            future::yield_now().await;
-            let v1 = async { 3 }.await;
-            future::yield_now().await;
-            future::yield_now().await;
-            let v2 = async { 2 }.await;
-
-            let res = async move {
                 future::yield_now().await;
-                v1 + v2
+                let v1 = async { 3 }.await;
+                future::yield_now().await;
+                future::yield_now().await;
+                let v2 = async { 2 }.await;
+
+                let res = async move {
+                    future::yield_now().await;
+                    v1 + v2
+                }
+                .await;
+
+                // https://github.com/rust-lang/rust/issues/63818
+                #[cfg(not(miri))]
+                {
+                    let _v = *val_ref;
+                    *val_mut_ref += 1;
+                }
+
+                let _ = val_ref;
+                let _ = val_mut_ref;
+
+                res
             }
-            .await;
-
-            // https://github.com/rust-lang/rust/issues/63818
-            #[cfg(not(miri))]
-            {
-                let _v = *val_ref;
-                *val_mut_ref += 1;
-            }
-
-            let _ = val_ref;
-            let _ = val_mut_ref;
-
-            res
-        })),
+            .into_completion()
+        ),
         5
     );
 }

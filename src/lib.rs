@@ -38,6 +38,8 @@ use core::ops::{Deref, DerefMut};
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
+#[doc(no_inline)]
+pub use completion_core::{CompletionFuture, CompletionStream};
 use futures_core::Stream;
 use pin_project_lite::pin_project;
 
@@ -45,13 +47,13 @@ pub mod future;
 #[cfg(feature = "alloc")]
 pub use self::future::{BoxCompletionFuture, LocalBoxCompletionFuture};
 #[doc(no_inline)]
-pub use self::future::{CompletionFuture, CompletionFutureExt, FutureExt};
+pub use self::future::{CompletionFutureExt, FutureExt};
 
 pub mod stream;
 #[cfg(feature = "alloc")]
 pub use self::stream::{BoxCompletionStream, LocalBoxCompletionStream};
 #[doc(no_inline)]
-pub use self::stream::{CompletionStream, CompletionStreamExt, StreamExt};
+pub use self::stream::{CompletionStreamExt, StreamExt};
 
 #[cfg(feature = "macro")]
 mod macros;
@@ -64,26 +66,14 @@ pub mod io;
 pin_project! {
     /// Unsafely assert that the inner future or stream will complete.
     ///
-    /// This is typically used in conjunction with [`MustComplete`] to apply [`Future`]-only
-    /// combinators to [`CompletionFuture`]s.
+    /// This will wrap a [`CompletionFuture`] or [`CompletionStream`] and implement [`Future`] or
+    /// [`Stream`] for it respectively.
     ///
-    /// # Examples
-    ///
-    /// Use a [`CompletionFuture`] in an async block:
-    ///
-    /// ```
-    /// use completion::{AssertCompletes, MustComplete};
-    ///
-    /// let future = MustComplete::new(async {
-    /// # let completion_future = MustComplete::new(async {});
-    ///     unsafe { AssertCompletes::new(completion_future) }.await;
-    /// });
-    /// ```
-    ///
-    /// Note that the [`completion_async!`] macro is a better way to achieve this.
+    /// It can be used in conjunction with [`MustComplete`] to apply [`Future`]-only combinators to
+    /// [`CompletionFuture`]s.
     #[derive(Debug, Clone)]
     #[must_use = "futures and streams do nothing unless you use them"]
-    pub struct AssertCompletes<T: ?Sized> {
+    pub struct AssertCompletes<T> {
         #[pin]
         inner: T,
     }
@@ -105,34 +95,37 @@ impl<T> AssertCompletes<T> {
     }
 }
 
-impl<T: ?Sized> Deref for AssertCompletes<T> {
+impl<T> Deref for AssertCompletes<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
 }
 
-impl<T: ?Sized> DerefMut for AssertCompletes<T> {
+impl<T> DerefMut for AssertCompletes<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
 }
 
-impl<T: CompletionFuture + ?Sized> Future for AssertCompletes<T> {
+impl<T: CompletionFuture> Future for AssertCompletes<T> {
     type Output = T::Output;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         unsafe { self.project().inner.poll(cx) }
     }
 }
-impl<T: CompletionFuture + ?Sized> CompletionFuture for AssertCompletes<T> {
+impl<T: CompletionFuture> CompletionFuture for AssertCompletes<T> {
     type Output = T::Output;
 
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.project().inner.poll(cx)
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().inner.poll_cancel(cx)
+    }
 }
-impl<T: CompletionStream + ?Sized> Stream for AssertCompletes<T> {
+impl<T: CompletionStream> Stream for AssertCompletes<T> {
     type Item = T::Item;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -142,76 +135,218 @@ impl<T: CompletionStream + ?Sized> Stream for AssertCompletes<T> {
         self.inner.size_hint()
     }
 }
-impl<T: CompletionStream + ?Sized> CompletionStream for AssertCompletes<T> {
+impl<T: CompletionStream> CompletionStream for AssertCompletes<T> {
     type Item = T::Item;
 
     unsafe fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.project().inner.poll_next(cx)
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().inner.poll_cancel(cx)
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.inner.size_hint()
     }
 }
 
+/// Helper type to implement [`CompletionFuture`] or [`CompletionStream`] for a type that only
+/// implements [`Future`] or [`Stream`].
+///
+/// This is typically created through the [`FutureExt::into_completion`] and
+/// [`StreamExt::into_completion`] methods.
+///
+/// # Examples
+///
+/// ```
+/// // This future doesn't implement `CompletionFuture`, so to use it in `block_on` we need to wrap
+/// // it in Adapter.
+/// let future = async {};
+/// completion::future::block_on(completion::Adapter(future));
+/// ```
+#[derive(Debug, Clone)]
+pub struct Adapter<T>(pub T);
+
+impl<T> Adapter<T> {
+    /// Get a pinned shared reference to the inner future or stream.
+    #[must_use]
+    pub fn get_pin_ref(self: Pin<&Self>) -> Pin<&T> {
+        unsafe { self.map_unchecked(|this| &this.0) }
+    }
+
+    /// Get a pinned mutable reference to the inner future or stream.
+    #[must_use]
+    pub fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut T> {
+        unsafe { self.map_unchecked_mut(|this| &mut this.0) }
+    }
+}
+
+impl<T: Future> Future for Adapter<T> {
+    type Output = T::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.get_pin_mut().poll(cx)
+    }
+}
+
+impl<T: Future> CompletionFuture for Adapter<T> {
+    type Output = T::Output;
+
+    unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.get_pin_mut().poll(cx)
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+        Poll::Ready(())
+    }
+}
+
+impl<T: Stream> Stream for Adapter<T> {
+    type Item = T::Item;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.get_pin_mut().poll_next(cx)
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+
+impl<T: Stream> CompletionStream for Adapter<T> {
+    type Item = T::Item;
+
+    unsafe fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.get_pin_mut().poll_next(cx)
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+        Poll::Ready(())
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+
 pin_project! {
-    /// Make sure that a future or stream will complete.
+    /// Make sure that a future or stream will complete, created by
+    /// [`CompletionFutureExt::must_complete`] and [`CompletionStreamExt::must_complete`].
     ///
-    /// This is typically used in conjunction with [`AssertCompletes`] to apply [`Future`]-only
-    /// combinators to [`CompletionFuture`]s. See [`AssertCompletes`] for details and examples.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use completion::MustComplete;
-    ///
-    /// async fn send_request() {
-    ///     /* Send a request to a server */
-    /// }
-    ///
-    /// let request_future = MustComplete::new(send_request());
-    /// // Now you can be sure that the request will finish sending.
-    /// ```
+    /// This wraps a [`CompletionFuture`] or [`CompletionStream`] and will ignore all requests to
+    /// cancel it, enforcing that it will complete.
     #[derive(Debug, Clone)]
-    #[must_use = "futures and streams do nothing unless you use them"]
-    pub struct MustComplete<T: ?Sized> {
+    pub struct MustComplete<T> {
         #[pin]
         inner: T,
     }
 }
 
 impl<T> MustComplete<T> {
-    /// Make sure that the given future or stream will complete.
-    ///
-    /// [`FutureExt::must_complete`] is generally preferred over calling this.
-    pub fn new(inner: T) -> Self {
-        Self { inner }
-    }
-
     /// Take the inner item.
     ///
     /// # Safety
     ///
-    /// This value must be polled to completion.
+    /// This value must not be cancelled with [`CompletionFuture::poll_cancel`] or
+    /// [`CompletionStream::poll_cancel`].
     pub unsafe fn into_inner(self) -> T {
         self.inner
     }
 }
 
-impl<T: Future + ?Sized> CompletionFuture for MustComplete<T> {
+impl<T: CompletionFuture> CompletionFuture for MustComplete<T> {
     type Output = T::Output;
 
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.project().inner.poll(cx)
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().inner.poll(cx).map(drop)
+    }
 }
 
-impl<T: Stream + ?Sized> CompletionStream for MustComplete<T> {
+impl<T: CompletionStream> CompletionStream for MustComplete<T> {
     type Item = T::Item;
 
     unsafe fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.project().inner.poll_next(cx)
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().inner.poll_next(cx).map(drop)
+    }
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.inner.size_hint()
+    }
+}
+
+#[cfg(test)]
+mod test_utils {
+    use core::future::Future;
+    use core::pin::Pin;
+    use core::task::{Context, Poll};
+
+    use completion_core::CompletionFuture;
+
+    pin_project_lite::pin_project! {
+        /// Future that yields once, before polling the inner future.
+        pub(super) struct Yield<F> {
+            times: usize,
+            #[pin]
+            fut: F,
+        }
+    }
+    impl<F> Yield<F> {
+        #[cfg_attr(not(feature = "std"), allow(dead_code))]
+        pub(super) fn new(times: usize, fut: F) -> Self {
+            Self { times, fut }
+        }
+        #[cfg_attr(not(feature = "std"), allow(dead_code))]
+        pub(super) fn once(fut: F) -> Self {
+            Self::new(1, fut)
+        }
+    }
+    impl<F: CompletionFuture> CompletionFuture for Yield<F> {
+        type Output = F::Output;
+
+        unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            let this = self.project();
+            if *this.times > 0 {
+                *this.times -= 1;
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            } else {
+                this.fut.poll(cx)
+            }
+        }
+        unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+            let this = self.project();
+            if *this.times > 0 {
+                *this.times -= 1;
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            } else {
+                this.fut.poll_cancel(cx)
+            }
+        }
+    }
+    impl<F: CompletionFuture + Future> Future for Yield<F> {
+        type Output = <F as CompletionFuture>::Output;
+
+        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            unsafe { CompletionFuture::poll(self, cx) }
+        }
+    }
+
+    #[cfg_attr(not(feature = "std"), allow(dead_code))]
+    pub(super) fn now_or_never<F: Future>(fut: F) -> Option<F::Output> {
+        use core::ptr;
+        use core::task::{RawWaker, RawWakerVTable, Waker};
+
+        const WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(|_| RAW_WAKER, drop, drop, drop);
+        const RAW_WAKER: RawWaker = RawWaker::new(ptr::null(), &WAKER_VTABLE);
+
+        let waker = unsafe { Waker::from_raw(RAW_WAKER) };
+        let mut cx = Context::from_waker(&waker);
+
+        futures_lite::pin!(fut);
+        match fut.poll(&mut cx) {
+            Poll::Ready(val) => Some(val),
+            Poll::Pending => None,
+        }
     }
 }

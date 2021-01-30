@@ -39,6 +39,9 @@ where
         }
         Poll::Ready(true)
     }
+    unsafe fn poll_cancel(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.stream.poll_cancel(cx)
+    }
 }
 
 impl<S: Unpin + ?Sized, F> Future for All<'_, S, F>
@@ -82,6 +85,9 @@ where
             }
         }
         Poll::Ready(false)
+    }
+    unsafe fn poll_cancel(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.stream.poll_cancel(cx)
     }
 }
 

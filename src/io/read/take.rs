@@ -158,6 +158,13 @@ impl<T: AsyncRead> CompletionFuture for ReadTake<'_, T> {
 
         Poll::Ready(Ok(()))
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        if let Some(fut) = self.project().fut.as_pin_mut() {
+            fut.poll_cancel(cx)
+        } else {
+            Poll::Ready(())
+        }
+    }
 }
 impl<'a, T: AsyncRead> Future for ReadTake<'a, T>
 where
@@ -216,6 +223,13 @@ impl<'a, T: AsyncBufRead> CompletionFuture for FillBufTake<'a, T> {
             }
             None => &[],
         }))
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        if let Some(fut) = self.project().fut.as_pin_mut() {
+            fut.poll_cancel(cx)
+        } else {
+            Poll::Ready(())
+        }
     }
 }
 impl<'a, T: AsyncBufRead> Future for FillBufTake<'a, T>

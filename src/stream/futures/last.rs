@@ -35,6 +35,9 @@ impl<S: CompletionStream> CompletionFuture for Last<S> {
             }
         }
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().stream.poll_cancel(cx)
+    }
 }
 
 impl<S: CompletionStream + Stream<Item = <S as CompletionStream>::Item>> Future for Last<S> {

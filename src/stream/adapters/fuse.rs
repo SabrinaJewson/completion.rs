@@ -45,6 +45,14 @@ impl<S: CompletionStream> CompletionStream for Fuse<S> {
             None
         })
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        let mut this = self.project();
+        if let Some(stream) = this.stream.as_mut().as_pin_mut() {
+            ready!(stream.poll_cancel(cx));
+            this.stream.set(None);
+        }
+        Poll::Ready(())
+    }
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.stream
             .as_ref()

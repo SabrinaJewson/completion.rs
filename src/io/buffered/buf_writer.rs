@@ -167,6 +167,13 @@ impl<'a, W: AsyncWrite + 'static> CompletionFuture for FlushBuf<'a, W> {
 
         Poll::Ready(Err(err))
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        if let Some(fut) = self.project().fut.as_pin_mut() {
+            fut.poll_cancel(cx)
+        } else {
+            Poll::Ready(())
+        }
+    }
 }
 
 impl<'a, W: AsyncWrite + 'static> AsyncWriteWith<'a> for BufWriter<W> {
@@ -291,6 +298,13 @@ impl<W: AsyncWrite + 'static> CompletionFuture for WriteBufWriter<'_, W> {
             _ => unreachable!(),
         }
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        match self.project().state.project() {
+            WriteStateProj::FlushBuf { fut } => fut.poll_cancel(cx),
+            WriteStateProj::Bypass { fut } => fut.poll_cancel(cx),
+            _ => Poll::Ready(()),
+        }
+    }
 }
 impl<'a, W: AsyncWrite + 'static> Future for WriteBufWriter<'a, W>
 where
@@ -403,6 +417,13 @@ impl<W: AsyncWrite + 'static> CompletionFuture for WriteVectoredBufWriter<'_, W>
             _ => unreachable!(),
         }
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        match self.project().state.project() {
+            WriteVStateProj::FlushBuf { fut } => fut.poll_cancel(cx),
+            WriteVStateProj::Bypass { fut } => fut.poll_cancel(cx),
+            _ => Poll::Ready(()),
+        }
+    }
 }
 impl<'a, W: AsyncWrite + 'static> Future for WriteVectoredBufWriter<'a, W>
 where
@@ -443,6 +464,16 @@ impl<W: AsyncWrite + 'static> CompletionFuture for FlushBufWriter<'_, W> {
             this.writer.set(Some(writer.flush()));
         }
         this.writer.as_pin_mut().unwrap().poll(cx)
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        let this = self.project();
+        if let Some(buf) = this.buf.as_pin_mut() {
+            buf.poll_cancel(cx)
+        } else if let Some(writer) = this.writer.as_pin_mut() {
+            writer.poll_cancel(cx)
+        } else {
+            unreachable!()
+        }
     }
 }
 impl<'a, W: AsyncWrite + 'static> Future for FlushBufWriter<'a, W>

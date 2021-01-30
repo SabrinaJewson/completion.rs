@@ -1,13 +1,15 @@
+use core::cell::Cell;
 use core::future::Future;
+use core::pin::Pin;
+use core::task::{Context, Poll};
 
 use completion_core::CompletionFuture;
-
-use crate::{AssertCompletes, MustComplete};
+use pin_project_lite::pin_project;
 
 /// An attribute macro to generate completion `async fn`s. These async functions evaluate to a
 /// [`CompletionFuture`], and you can `.await` other [`CompletionFuture`]s inside of them.
 ///
-/// Requires the `macro` feature.
+/// Requires the `macro` and `std` features.
 ///
 /// # Examples
 ///
@@ -85,7 +87,7 @@ pub use completion_macro::completion_async_move_inner as __completion_async_move
 /// These async blocks evaluate to a [`CompletionFuture`], and you can `.await` other
 /// [`CompletionFuture`]s inside of them.
 ///
-/// Requires the `macro` feature.
+/// Requires the `macro` and `std` features.
 ///
 /// # Examples
 ///
@@ -94,7 +96,7 @@ pub use completion_macro::completion_async_move_inner as __completion_async_move
 ///
 /// let fut = completion_async! {
 ///     let fut = async { 3 };
-///     let completion_fut = async { 5 }.must_complete();
+///     let completion_fut = async { 5 }.into_completion();
 ///     fut.await + completion_fut.await
 /// };
 /// ```
@@ -109,7 +111,7 @@ macro_rules! completion_async {
 /// These async blocks evaluate to a [`CompletionFuture`], and you can `.await` other
 /// [`CompletionFuture`]s inside of them.
 ///
-/// Requires the `macro` feature.
+/// Requires the `macro` and `std` features.
 ///
 /// # Examples
 ///
@@ -118,7 +120,7 @@ macro_rules! completion_async {
 ///
 /// let fut = completion_async_move! {
 ///     let fut = async { 3 };
-///     let completion_fut = async { 5 }.must_complete();
+///     let completion_fut = async { 5 }.into_completion();
 ///     fut.await + completion_fut.await
 /// };
 /// ```
@@ -129,10 +131,95 @@ macro_rules! completion_async_move {
     }
 }
 
-/// Wrapper around `MustComplete::new` to avoid displaying `MustComplete` in error messages.
+thread_local! {
+    /// When the current async block is awaiting on a completion future, this will be set if it
+    /// wishes to call `poll_cancel` and will be cleared if it wishes to call `poll`. If it is
+    /// awaiting on a regular future, it will be cleared (`poll_cancel` cannot be called on a
+    /// regular future).
+    ///
+    /// When a completion future returns `Poll::Pending` from either `poll` or `poll_cancel` this
+    /// will be set, otherwise it will be cleared.
+    static FLAG: Cell<bool> = Cell::new(false);
+}
+
+/// Make a completion future async block.
 #[doc(hidden)]
-pub fn __make_completion_future<F: Future>(future: F) -> impl CompletionFuture<Output = F::Output> {
-    MustComplete::new(future)
+pub fn __completion_async<F: Future>(fut: F) -> impl CompletionFuture<Output = F::Output> {
+    pin_project! {
+        #[doc(hidden)]
+        struct Wrapper<F> {
+            #[pin]
+            fut: F,
+            // Whether we are currently `.await`ing on a completion future.
+            awaiting_on_completion: bool,
+        }
+    }
+    impl<F: Future> CompletionFuture for Wrapper<F> {
+        type Output = F::Output;
+
+        unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            let this = self.project();
+
+            FLAG.with(|cell| cell.set(false));
+
+            let poll = this.fut.poll(cx);
+            if poll.is_pending() {
+                *this.awaiting_on_completion = FLAG.with(Cell::get);
+            }
+            poll
+        }
+        unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+            let this = self.project();
+            if *this.awaiting_on_completion {
+                FLAG.with(|cell| cell.set(true));
+
+                let poll = this.fut.poll(cx);
+                debug_assert!(poll.is_pending());
+
+                if FLAG.with(Cell::get) {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            } else {
+                Poll::Ready(())
+            }
+        }
+    }
+
+    Wrapper {
+        fut,
+        awaiting_on_completion: false,
+    }
+}
+
+mod r#await {
+    use pin_project_lite::pin_project;
+
+    pin_project! {
+        #[derive(Debug)]
+        pub struct Await<F> {
+            #[pin]
+            pub(super) fut: F,
+        }
+    }
+}
+use r#await::Await;
+
+impl<F: CompletionFuture> Future for Await<F> {
+    type Output = F::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+
+        if FLAG.with(Cell::get) {
+            let poll = unsafe { this.fut.poll_cancel(cx) };
+            FLAG.with(|cell| cell.set(poll.is_ready()));
+            Poll::Pending
+        } else {
+            unsafe { this.fut.poll(cx) }
+        }
+    }
 }
 
 // We want to be able to `.await` both regular futures and completion futures in blocks generated
@@ -144,22 +231,22 @@ pub struct __FutureOrCompletionFuture<F>(pub F);
 
 impl<F: Future> __FutureOrCompletionFuture<F> {
     /// This method will be called when the type implements `Future`.
-    pub fn __into_future_unsafe(self) -> F {
+    pub fn __into_awaitable(self) -> F {
         self.0
     }
 }
 
 #[doc(hidden)]
-pub trait __CompletionFutureIntoFutureUnsafe {
+pub trait __CompletionFutureIntoAwaitable {
     type Future;
     /// This method will be called when the type doesn't implement `Future`. As it's a trait it has
     /// lower priority than the inherent impl.
-    fn __into_future_unsafe(self) -> Self::Future;
+    fn __into_awaitable(self) -> Self::Future;
 }
-impl<F> __CompletionFutureIntoFutureUnsafe for __FutureOrCompletionFuture<F> {
-    type Future = AssertCompletes<F>;
-    fn __into_future_unsafe(self) -> Self::Future {
-        unsafe { AssertCompletes::new(self.0) }
+impl<F> __CompletionFutureIntoAwaitable for __FutureOrCompletionFuture<F> {
+    type Future = Await<F>;
+    fn __into_awaitable(self) -> Self::Future {
+        Await { fut: self.0 }
     }
 }
 
@@ -170,15 +257,7 @@ pub mod __special_macros {
         matches, panic, todo, unimplemented, unreachable, write, writeln,
     };
 
-    #[cfg(feature = "alloc")]
     pub use alloc::{format, vec};
 
-    #[cfg(feature = "std")]
     pub use std::{dbg, eprint, eprintln, print, println};
-}
-
-#[doc(hidden)]
-pub mod __reexports {
-    #[cfg(feature = "alloc")]
-    pub use alloc::boxed::Box;
 }

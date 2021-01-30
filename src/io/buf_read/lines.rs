@@ -25,6 +25,7 @@ pin_project! {
         reader: AliasableBox<R>,
         buf: AliasableBox<String>,
         // We want to support the above becoming unboxed in the future
+        #[pin]
         _pinned: PhantomPinned,
     }
 }
@@ -71,6 +72,13 @@ impl<R: AsyncBufRead> CompletionStream for Lines<'_, R> {
 
             Some(Ok(mem::replace(buf, String::new())))
         })
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        if let Some(fut) = self.project().fut.as_pin_mut() {
+            fut.poll_cancel(cx)
+        } else {
+            Poll::Ready(())
+        }
     }
 }
 impl<'r, R: AsyncBufRead> Stream for Lines<'r, R>

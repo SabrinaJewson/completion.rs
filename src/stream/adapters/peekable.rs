@@ -28,6 +28,11 @@ impl<S: CompletionStream> Peekable<S> {
 
     /// Peek the next value in the stream.
     ///
+    /// # Cancellation
+    ///
+    /// If the returned future is cancelled and the next value in the stream has not been peeked
+    /// yet, the entire stream is cancelled, otherwise nothing happens.
+    ///
     /// # Examples
     ///
     /// ```
@@ -35,7 +40,7 @@ impl<S: CompletionStream> Peekable<S> {
     /// use futures_lite::{stream, pin};
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// let stream = stream::once(5).must_complete().peekable();
+    /// let stream = stream::once(5).into_completion().peekable();
     /// pin!(stream);
     ///
     /// assert_eq!(stream.as_mut().peek().await, Some(&5));
@@ -52,7 +57,8 @@ impl<S: CompletionStream> Peekable<S> {
 
     /// Peek the next value in the stream if the underlying type implements [`Unpin`].
     ///
-    /// `stream.peek_unpin()` is equivalent to `Pin::new(&mut stream).peek()`.
+    /// `stream.peek_unpin()` is equivalent to `Pin::new(&mut stream).peek()`. See
+    /// [`peek`](Self::peek) for more information.
     ///
     /// # Examples
     ///
@@ -61,7 +67,7 @@ impl<S: CompletionStream> Peekable<S> {
     /// use futures_lite::stream;
     ///
     /// # completion::future::block_on(completion::completion_async! {
-    /// let mut stream = stream::once(8).must_complete().peekable();
+    /// let mut stream = stream::once(8).into_completion().peekable();
     ///
     /// assert_eq!(stream.peek_unpin().await, Some(&8));
     /// assert_eq!(stream.peek_unpin().await, Some(&8));
@@ -97,6 +103,27 @@ impl<S: CompletionStream> Peekable<S> {
             Poll::Pending => Poll::Pending,
         }
     }
+
+    /// Attempt to cancel peeking the next value in the stream.
+    ///
+    /// This will cancel the underlying stream if the next value in the stream has not already been
+    /// peeked.
+    ///
+    /// This function is quite low level, use [`peek`](Self::peek) or
+    /// [`peek_unpin`](Self::peek_unpin) for a higher-level equivalent.
+    ///
+    /// # Safety
+    ///
+    /// See [`CompletionStream::poll_cancel`].
+    pub unsafe fn poll_peek_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        let this = self.project();
+
+        if this.peeked.is_pending() {
+            this.stream.poll_cancel(cx)
+        } else {
+            Poll::Ready(())
+        }
+    }
 }
 
 impl<S: CompletionStream> CompletionStream for Peekable<S> {
@@ -108,6 +135,16 @@ impl<S: CompletionStream> CompletionStream for Peekable<S> {
             *this.peeked = this.stream.as_mut().poll_next(cx);
         }
         mem::replace(this.peeked, Poll::Pending)
+    }
+
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        let this = self.project();
+
+        if this.peeked.is_pending() {
+            this.stream.poll_cancel(cx)
+        } else {
+            Poll::Ready(())
+        }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -163,6 +200,10 @@ where
         let stream = self.stream.as_mut().expect("polled after completion");
         ready!(stream.as_mut().poll_peek(cx));
         self.stream.take().unwrap().poll_peek(cx)
+    }
+    unsafe fn poll_cancel(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        let stream = self.stream.as_mut().expect("polled after completion");
+        stream.as_mut().poll_peek_cancel(cx)
     }
 }
 

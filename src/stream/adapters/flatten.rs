@@ -42,6 +42,9 @@ where
     unsafe fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.project().inner.poll_next(cx)
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().inner.poll_cancel(cx)
+    }
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.inner.size_hint()
     }
@@ -110,6 +113,16 @@ where
                     None => break None,
                 }));
         })
+    }
+
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        let mut this = self.project();
+
+        if let Some(current) = this.current.as_mut().as_pin_mut() {
+            current.poll_cancel(cx)
+        } else {
+            this.stream.poll_cancel(cx)
+        }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {

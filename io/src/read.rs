@@ -78,6 +78,9 @@ impl CompletionFuture for ReadRepeat<'_> {
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Future::poll(self, cx)
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+        Poll::Ready(())
+    }
 }
 impl Future for ReadRepeat<'_> {
     type Output = Result<()>;
@@ -145,6 +148,9 @@ impl CompletionFuture for ReadSlice<'_, '_> {
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Future::poll(self, cx)
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+        Poll::Ready(())
+    }
 }
 
 #[test]
@@ -206,6 +212,9 @@ impl<T: AsRef<[u8]>> CompletionFuture for ReadCursor<'_, T> {
 
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Future::poll(self, cx)
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+        Poll::Ready(())
     }
 }
 

@@ -47,7 +47,6 @@ where
 
 pin_project! {
     /// Stream for [`unfold`].
-    #[must_use = "streams do nothing unless you use them"]
     pub struct Unfold<T, F, Fut> {
         state: Option<T>,
         f: F,
@@ -92,6 +91,13 @@ where
             *this.state = Some(next_state);
             item
         }))
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        if let Some(fut) = self.project().fut.as_pin_mut() {
+            fut.poll_cancel(cx)
+        } else {
+            Poll::Ready(())
+        }
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
         if self.fut.is_none() && self.state.is_none() {
@@ -158,7 +164,6 @@ where
 
 pin_project! {
     /// Stream for [`try_unfold`].
-    #[must_use = "streams do nothing unless you use them"]
     pub struct TryUnfold<T, F, Fut> {
         state: Option<T>,
         f: F,
@@ -209,6 +214,13 @@ where
                 None
             }
         })
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        if let Some(fut) = self.project().fut.as_pin_mut() {
+            fut.poll_cancel(cx)
+        } else {
+            Poll::Ready(())
+        }
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
         if self.state.is_none() && self.fut.is_none() {

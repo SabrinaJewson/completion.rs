@@ -146,6 +146,13 @@ impl<T: AsyncRead, U: AsyncRead> CompletionFuture for ReadChain<'_, T, U> {
             _ => unreachable!(),
         }
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        match self.project().state.project() {
+            ReadChainStateProj::First { fut, .. } => fut.poll_cancel(cx),
+            ReadChainStateProj::Second { fut } => fut.poll_cancel(cx),
+            _ => Poll::Ready(()),
+        }
+    }
 }
 
 impl<'a, T: AsyncRead, U: AsyncRead> Future for ReadChain<'_, T, U>
@@ -250,6 +257,13 @@ impl<'a, T: AsyncBufRead, U: AsyncBufRead> CompletionFuture for FillBufChain<'a,
         match this.state.project() {
             FillBufChainStateProj::Second { fut } => fut.poll(cx),
             _ => unreachable!(),
+        }
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        match self.project().state.project() {
+            FillBufChainStateProj::First { fut, .. } => fut.poll_cancel(cx),
+            FillBufChainStateProj::Second { fut } => fut.poll_cancel(cx),
+            _ => Poll::Ready(()),
         }
     }
 }

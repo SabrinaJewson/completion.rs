@@ -40,6 +40,9 @@ where
             }
         })
     }
+    unsafe fn poll_cancel(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.stream.poll_cancel(cx)
+    }
 }
 
 impl<S: Unpin + ?Sized, P> Future for Find<'_, S, P>
@@ -85,6 +88,9 @@ where
                 None => break None,
             }
         })
+    }
+    unsafe fn poll_cancel(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.stream.poll_cancel(cx)
     }
 }
 
@@ -137,6 +143,9 @@ where
                 None => break None,
             }
         })
+    }
+    unsafe fn poll_cancel(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.stream.poll_cancel(cx)
     }
 }
 

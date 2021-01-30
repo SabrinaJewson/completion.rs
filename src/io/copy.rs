@@ -168,6 +168,13 @@ where
             }
         }
     }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        match self.project().state.project() {
+            CopyStateProj::PreRead => Poll::Ready(()),
+            CopyStateProj::Reading { fut } => fut.poll_cancel(cx),
+            CopyStateProj::Writing { fut, .. } => fut.poll_cancel(cx),
+        }
+    }
 }
 impl<'a, R, W> Future for Copy<'a, R, W>
 where
@@ -337,6 +344,14 @@ where
                     return Poll::Ready(Ok(*this.written));
                 }
             }
+        }
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        match self.project().state.project() {
+            CopyBufStateProj::PreRead => Poll::Ready(()),
+            CopyBufStateProj::Reading { fut } => fut.poll_cancel(cx),
+            CopyBufStateProj::Writing { fut, .. } => fut.poll_cancel(cx),
+            CopyBufStateProj::Flushing { fut, .. } => fut.poll_cancel(cx),
         }
     }
 }
