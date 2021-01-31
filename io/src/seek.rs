@@ -1,5 +1,5 @@
-use std::future::Future;
-use std::io::{Cursor, Result, SeekFrom};
+use std::future::{self, Future};
+use std::io::{Cursor, Empty, Result, SeekFrom};
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -39,6 +39,14 @@ impl<'a, S: AsyncSeekWith<'a> + ?Sized> AsyncSeekWith<'a> for Box<S> {
     #[inline]
     fn seek(&'a mut self, pos: SeekFrom) -> Self::SeekFuture {
         (**self).seek(pos)
+    }
+}
+
+impl<'a> AsyncSeekWith<'a> for Empty {
+    type SeekFuture = future::Ready<Result<u64>>;
+
+    fn seek(&'a mut self, _pos: SeekFrom) -> Self::SeekFuture {
+        future::ready(Ok(0))
     }
 }
 
