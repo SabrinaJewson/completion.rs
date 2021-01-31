@@ -104,7 +104,7 @@ pub(crate) fn transform(mut expr: ExprAsync, crate_path: &CratePath) -> TokenStr
 /// `awaitable_completion_futures` variables will not be able to interfere.
 ///
 /// Note that this solution isn't perfect - attribute macros can still expand to regular async
-/// blocks that await completion futures - however that will be caught at runtime with a panic.
+/// blocks that await completion futures, which may cause unsoundness.
 #[cfg(test)]
 pub(super) fn in_scope() -> Ident {
     Ident::new("awaitable_completion_futures", Span::mixed_site())

@@ -31,14 +31,16 @@
 
 use std::borrow::Cow;
 use std::cell::Cell;
-use std::future::Future;
+use std::future::{self, Future};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use completion_core::CompletionFuture;
-use futures_lite::future::yield_now;
+use futures_lite::{future::yield_now, pin};
 
-use crate::{completion, completion_async, completion_async_move, future::block_on, test_utils};
+use crate::test_utils;
+use crate::CompletionFutureExt;
+use crate::{completion, completion_async, completion_async_move, future::block_on};
 
 #[completion(crate = crate)]
 async fn empty_async() {}
@@ -235,15 +237,16 @@ fn cancel_future() {
     let number = Cell::new(0);
 
     let fut = completion_async! {
+        number.set(1000);
+        let _ = future::ready(5).must_complete().await;
+        number.set(1);
         Fut { number: &number }.await;
     };
-    futures_lite::pin!(fut);
+    pin!(fut);
 
-    for n in 1..=10 {
-        assert_eq!(test_utils::poll_once(fut.as_mut()), None);
-        assert_eq!(number.get(), n);
-    }
+    assert_eq!(test_utils::poll_once(fut.as_mut()), None);
+    assert_eq!(number.get(), 2);
 
     assert_eq!(test_utils::poll_cancel_once(fut.as_mut()), true);
-    assert_eq!(number.get(), 10);
+    assert_eq!(number.get(), 2);
 }

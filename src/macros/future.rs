@@ -14,6 +14,8 @@ mod tests;
 ///
 /// Requires the `macro` and `std` features.
 ///
+/// See also [`completion_async!`] for more details.
+///
 /// # Examples
 ///
 /// ```
@@ -92,16 +94,46 @@ pub use completion_macro::completion_async_move_inner as __completion_async_move
 ///
 /// Requires the `macro` and `std` features.
 ///
+/// # Soundness
+///
+/// There is currently a slight soundness issue inside these async blocks: if you invoke an
+/// attribute macro inside the async block on some code that awaits a completion future, and that
+/// attribute macro moves the code to a regular, non-completion async block, you are able to create
+/// a [`Future`] that unsoundly wraps a [`CompletionFuture`]. Or in code, this:
+///
+/// ```ignore
+/// completion_async! {
+///     #[some_macro]
+///     completion_future.await;
+/// }
+/// ```
+///
+/// Could expand to:
+///
+/// ```ignore
+/// completion_async! {
+///     async {
+///         // Oh no! We have awaited a completion future inside a regular async block.
+///         completion_future.await;
+///     }
+/// }
+/// ```
+///
+/// This macro does not require `unsafe` because I decided that this unsoundness is so particular
+/// that it is highly unlikely it will actually occur in user code. If you know of a fix for this,
+/// it would be highly appreciated.
+///
 /// # Examples
 ///
 /// ```
-/// use completion::{FutureExt, completion_async};
+/// use completion::{FutureExt, completion_async, future};
 ///
 /// let fut = completion_async! {
 ///     let fut = async { 3 };
 ///     let completion_fut = async { 5 }.into_completion();
 ///     fut.await + completion_fut.await
 /// };
+/// assert_eq!(future::block_on(fut), 8);
 /// ```
 #[macro_export]
 macro_rules! completion_async {
@@ -116,16 +148,19 @@ macro_rules! completion_async {
 ///
 /// Requires the `macro` and `std` features.
 ///
+/// See also [`completion_async!`] for more details.
+///
 /// # Examples
 ///
 /// ```
-/// use completion::{FutureExt, completion_async_move};
+/// use completion::{FutureExt, completion_async_move, future};
 ///
 /// let fut = completion_async_move! {
 ///     let fut = async { 3 };
 ///     let completion_fut = async { 5 }.into_completion();
 ///     fut.await + completion_fut.await
 /// };
+/// assert_eq!(future::block_on(fut), 8);
 /// ```
 #[macro_export]
 macro_rules! completion_async_move {
@@ -134,15 +169,25 @@ macro_rules! completion_async_move {
     }
 }
 
+/// The state of the current thread.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum State {
+    /// The initial state.
+    None,
+    /// The completion async block is polling the inner async block.
+    Polling,
+    /// The completion async block is telling the currently pending completion future to cancel.
+    Cancelling,
+    /// A completion future inside a completion async block returned `Poll::Pending` from `poll`.
+    CompletionPollPending,
+    /// The currently pending completion future returned `Poll::Ready` from `poll_cancel`.
+    CancelReady,
+    /// The currently pending completion future returned `Poll::Pending` from `poll_cancel`.
+    CancelPending,
+}
+
 thread_local! {
-    /// When the current async block is awaiting on a completion future, this will be set if it
-    /// wishes to call `poll_cancel` and will be cleared if it wishes to call `poll`. If it is
-    /// awaiting on a regular future, it will be cleared (`poll_cancel` cannot be called on a
-    /// regular future).
-    ///
-    /// When a completion future returns `Poll::Pending` from either `poll` or `poll_cancel` this
-    /// will be set, otherwise it will be cleared.
-    static FLAG: Cell<bool> = Cell::new(false);
+    static STATE: Cell<State> = Cell::new(State::None);
 }
 
 /// Make a completion future async block.
@@ -163,26 +208,30 @@ pub fn __completion_async<F: Future>(fut: F) -> impl CompletionFuture<Output = F
         unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
             let this = self.project();
 
-            FLAG.with(|cell| cell.set(false));
+            STATE.with(|state| state.set(State::Polling));
 
             let poll = this.fut.poll(cx);
             if poll.is_pending() {
-                *this.awaiting_on_completion = FLAG.with(Cell::get);
+                *this.awaiting_on_completion = match STATE.with(Cell::get) {
+                    State::Polling => false,
+                    State::CompletionPollPending => true,
+                    state => panic!("invalid state {:?}", state),
+                };
             }
             poll
         }
         unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
             let this = self.project();
             if *this.awaiting_on_completion {
-                FLAG.with(|cell| cell.set(true));
+                STATE.with(|state| state.set(State::Cancelling));
 
                 let poll = this.fut.poll(cx);
                 debug_assert!(poll.is_pending());
 
-                if FLAG.with(Cell::get) {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
+                match STATE.with(Cell::get) {
+                    State::CancelReady => Poll::Ready(()),
+                    State::CancelPending => Poll::Pending,
+                    state => panic!("invalid state {:?}", state),
                 }
             } else {
                 Poll::Ready(())
@@ -200,6 +249,7 @@ mod r#await {
     use pin_project_lite::pin_project;
 
     pin_project! {
+        /// Wrapper to await completion futures in regular futures.
         #[derive(Debug)]
         pub struct Await<F> {
             #[pin]
@@ -215,15 +265,25 @@ impl<F: CompletionFuture> Future for Await<F> {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
 
-        if FLAG.with(Cell::get) {
-            let poll = unsafe { this.fut.poll_cancel(cx) };
-            // Tell the async block whether we have finished cancelling.
-            FLAG.with(|cell| cell.set(poll.is_ready()));
-            Poll::Pending
-        } else {
-            // Tell the async block that it is awaiting a completion future.
-            FLAG.with(|cell| cell.set(true));
-            unsafe { this.fut.poll(cx) }
+        match STATE.with(Cell::get) {
+            State::Polling => {
+                let poll = unsafe { this.fut.poll(cx) };
+                if poll.is_pending() {
+                    STATE.with(|state| state.set(State::CompletionPollPending));
+                }
+                poll
+            }
+            State::Cancelling => {
+                let poll = unsafe { this.fut.poll_cancel(cx) };
+                STATE.with(|state| {
+                    state.set(match poll {
+                        Poll::Ready(()) => State::CancelReady,
+                        Poll::Pending => State::CancelPending,
+                    })
+                });
+                Poll::Pending
+            }
+            state => panic!("invalid state {:?}", state),
         }
     }
 }

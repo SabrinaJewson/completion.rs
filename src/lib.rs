@@ -281,9 +281,10 @@ mod test_utils {
     use core::task::{Context, Poll, Waker};
 
     use completion_core::CompletionFuture;
+    use pin_project_lite::pin_project;
 
-    pin_project_lite::pin_project! {
-        /// Future that yields once, before polling the inner future.
+    pin_project! {
+        /// Future that yields a number of times, before polling the inner future.
         pub(super) struct Yield<F> {
             times: usize,
             #[pin]
