@@ -1088,8 +1088,6 @@ pub trait CompletionStreamExt: CompletionStream {
 
     /// Box the stream, erasing its type.
     ///
-    /// Requires the `alloc` feature.
-    ///
     /// # Examples
     ///
     /// ```
@@ -1105,6 +1103,7 @@ pub trait CompletionStreamExt: CompletionStream {
     /// };
     /// ```
     #[cfg(feature = "alloc")]
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "alloc")))]
     fn boxed<'a>(self) -> BoxCompletionStream<'a, Self::Item>
     where
         Self: Sized + Send + 'a,
@@ -1113,8 +1112,6 @@ pub trait CompletionStreamExt: CompletionStream {
     }
 
     /// Box the stream locally, erasing its type.
-    ///
-    /// Requires the `alloc` feature.
     ///
     /// # Examples
     ///
@@ -1131,6 +1128,7 @@ pub trait CompletionStreamExt: CompletionStream {
     /// };
     /// ```
     #[cfg(feature = "alloc")]
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "alloc")))]
     fn boxed_local<'a>(self) -> LocalBoxCompletionStream<'a, Self::Item>
     where
         Self: Sized + 'a,
@@ -1141,15 +1139,13 @@ pub trait CompletionStreamExt: CompletionStream {
 impl<T: CompletionStream + ?Sized> CompletionStreamExt for T {}
 
 /// A type-erased completion future.
-///
-/// Requires the `alloc` feature.
 #[cfg(feature = "alloc")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "alloc")))]
 pub type BoxCompletionStream<'a, T> = Pin<Box<dyn CompletionStream<Item = T> + Send + 'a>>;
 
 /// A type-erased completion future that cannot be send across threads.
-///
-/// Requires the `alloc` feature.
 #[cfg(feature = "alloc")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "alloc")))]
 pub type LocalBoxCompletionStream<'a, T> = Pin<Box<dyn CompletionStream<Item = T> + 'a>>;
 
 /// Extension trait for converting [`Stream`]s to [`CompletionStream`]s.
@@ -1172,8 +1168,6 @@ impl<T: Stream> StreamExt for T {}
 
 /// Convert a stream to a blocking iterator.
 ///
-/// Requires the `std` feature.
-///
 /// # Examples
 ///
 /// ```
@@ -1187,11 +1181,13 @@ impl<T: Stream> StreamExt for T {}
 /// assert_eq!(stream::block_on(stream).collect::<Vec<_>>(), ['!', '~']);
 /// ```
 #[cfg(feature = "std")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "std")))]
 pub fn block_on<S: CompletionStream + Unpin>(stream: S) -> BlockOn<S> {
     BlockOn { stream }
 }
 
 /// Iterator for [`block_on`].
+#[cfg_attr(doc_cfg, doc(cfg(feature = "std")))]
 #[derive(Debug)]
 #[cfg(feature = "std")]
 pub struct BlockOn<S> {

@@ -11,8 +11,6 @@ use completion_core::CompletionFuture;
 
 /// Blocks the current thread on a completion future.
 ///
-/// Requires the `std` feature.
-///
 /// # Examples
 ///
 /// ```
@@ -20,6 +18,7 @@ use completion_core::CompletionFuture;
 ///
 /// assert_eq!(future::block_on(completion_async! { 5 + 6 }), 11);
 /// ```
+#[cfg_attr(doc_cfg, doc(cfg(feature = "std")))]
 pub fn block_on<F: CompletionFuture>(mut future: F) -> F::Output {
     let mut fut = unsafe { Pin::new_unchecked(&mut future) };
 

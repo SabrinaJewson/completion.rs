@@ -12,8 +12,6 @@ mod tests;
 /// An attribute macro to generate completion `async fn`s. These async functions evaluate to a
 /// [`CompletionFuture`], and you can `.await` other [`CompletionFuture`]s inside of them.
 ///
-/// Requires the `macro` and `std` features.
-///
 /// See also [`completion_async!`] for more details.
 ///
 /// # Examples
@@ -80,6 +78,7 @@ mod tests;
 ///
 /// That will allow you to hold `!Send` types across await points in the future, but will only
 /// allow it to be executed on a single-threaded executor.
+#[cfg_attr(doc_cfg, doc(cfg(all(feature = "macro", feature = "std"))))]
 pub use completion_macro::completion;
 
 #[doc(hidden)]
@@ -91,8 +90,6 @@ pub use completion_macro::completion_async_move_inner as __completion_async_move
 ///
 /// These async blocks evaluate to a [`CompletionFuture`], and you can `.await` other
 /// [`CompletionFuture`]s inside of them.
-///
-/// Requires the `macro` and `std` features.
 ///
 /// # Soundness
 ///
@@ -135,6 +132,7 @@ pub use completion_macro::completion_async_move_inner as __completion_async_move
 /// };
 /// assert_eq!(future::block_on(fut), 8);
 /// ```
+#[cfg_attr(doc_cfg, doc(cfg(all(feature = "macro", feature = "std"))))]
 #[macro_export]
 macro_rules! completion_async {
     ($($tt:tt)*) => {
@@ -145,8 +143,6 @@ macro_rules! completion_async {
 ///
 /// These async blocks evaluate to a [`CompletionFuture`], and you can `.await` other
 /// [`CompletionFuture`]s inside of them.
-///
-/// Requires the `macro` and `std` features.
 ///
 /// See also [`completion_async!`] for more details.
 ///
@@ -162,6 +158,7 @@ macro_rules! completion_async {
 /// };
 /// assert_eq!(future::block_on(fut), 8);
 /// ```
+#[cfg_attr(doc_cfg, doc(cfg(all(feature = "macro", feature = "std"))))]
 #[macro_export]
 macro_rules! completion_async_move {
     ($($tt:tt)*) => {

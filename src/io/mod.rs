@@ -1,6 +1,4 @@
 //! Utilities for programming with asynchronous I/O.
-//!
-//! Requires the `std` feature.
 
 pub use completion_io::*;
 

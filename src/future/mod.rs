@@ -65,8 +65,6 @@ pub trait CompletionFutureExt: CompletionFuture {
 
     /// Catch panics in the future.
     ///
-    /// Requires the `std` feature.
-    ///
     /// # Examples
     ///
     /// ```
@@ -78,6 +76,7 @@ pub trait CompletionFutureExt: CompletionFuture {
     /// # });
     /// ```
     #[cfg(feature = "std")]
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "std")))]
     fn catch_unwind(self) -> CatchUnwind<Self>
     where
         Self: Sized + UnwindSafe,
@@ -86,8 +85,6 @@ pub trait CompletionFutureExt: CompletionFuture {
     }
 
     /// Box the future, erasing its type.
-    ///
-    /// Requires the `alloc` feature.
     ///
     /// # Examples
     ///
@@ -103,6 +100,7 @@ pub trait CompletionFutureExt: CompletionFuture {
     /// };
     /// ```
     #[cfg(feature = "alloc")]
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "alloc")))]
     fn boxed<'a>(self) -> BoxCompletionFuture<'a, Self::Output>
     where
         Self: Sized + Send + 'a,
@@ -111,8 +109,6 @@ pub trait CompletionFutureExt: CompletionFuture {
     }
 
     /// Box the future locally, erasing its type.
-    ///
-    /// Requires the `alloc` feature.
     ///
     /// # Examples
     ///
@@ -128,6 +124,7 @@ pub trait CompletionFutureExt: CompletionFuture {
     /// };
     /// ```
     #[cfg(feature = "alloc")]
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "alloc")))]
     fn boxed_local<'a>(self) -> LocalBoxCompletionFuture<'a, Self::Output>
     where
         Self: Sized + 'a,
@@ -141,8 +138,7 @@ impl<T: CompletionFuture + ?Sized> CompletionFutureExt for T {}
 #[cfg(feature = "std")]
 pin_project! {
     /// Future for [`CompletionFutureExt::catch_unwind`].
-    ///
-    /// Requires the `std` feature.
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "std")))]
     #[derive(Debug)]
     #[must_use = "futures do nothing unless you use them"]
     pub struct CatchUnwind<F: ?Sized> {
@@ -174,15 +170,13 @@ impl<F: Future + UnwindSafe + ?Sized> Future for CatchUnwind<F> {
 }
 
 /// A type-erased completion future.
-///
-/// Requires the `alloc` feature.
 #[cfg(feature = "alloc")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "alloc")))]
 pub type BoxCompletionFuture<'a, T> = Pin<Box<dyn CompletionFuture<Output = T> + Send + 'a>>;
 
 /// A type-erased completion future that cannot be send across threads.
-///
-/// Requires the `alloc` feature.
 #[cfg(feature = "alloc")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "alloc")))]
 pub type LocalBoxCompletionFuture<'a, T> = Pin<Box<dyn CompletionFuture<Output = T> + 'a>>;
 
 /// Extension trait for converting [`Future`]s to [`CompletionFuture`]s.

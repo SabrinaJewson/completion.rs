@@ -14,6 +14,7 @@
 //! - `macro`: Enables the [`completion`], [`completion_async`], [`completion_async_move`] and
 //! [`completion_stream`] macros, on by default.
 #![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(doc_cfg, feature(doc_cfg))]
 #![warn(
     clippy::pedantic,
     clippy::wrong_pub_self_convention,
@@ -61,6 +62,7 @@ mod macros;
 pub use macros::*;
 
 #[cfg(feature = "std")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "std")))]
 pub mod io;
 
 pin_project! {

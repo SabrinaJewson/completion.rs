@@ -21,8 +21,6 @@ mod tests;
 /// operator works in the stream if it yields an [`Option`] or [`Result`] - if an error occurs the
 /// stream will yield that single error and then exit.
 ///
-/// Requires the `macro` and `std` features.
-///
 /// # Examples
 ///
 /// ```
@@ -44,6 +42,7 @@ mod tests;
 /// assert_eq!(stream.next().await, None);
 /// # });
 /// ```
+#[cfg_attr(doc_cfg, doc(cfg(all(feature = "macro", feature = "std"))))]
 #[macro_export]
 macro_rules! completion_stream {
     ($($tt:tt)*) => {

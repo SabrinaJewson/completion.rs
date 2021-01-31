@@ -29,6 +29,7 @@ use pin_project_lite::pin_project;
 /// );
 /// # });
 /// ```
+#[cfg_attr(doc_cfg, doc(cfg(feature = "std")))]
 pub fn zip<F1: CompletionFuture, F2: CompletionFuture>(future1: F1, future2: F2) -> Zip<F1, F2> {
     Zip {
         future1,
@@ -40,6 +41,7 @@ pub fn zip<F1: CompletionFuture, F2: CompletionFuture>(future1: F1, future2: F2)
 
 pin_project! {
     /// Future for [`zip`].
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "std")))]
     #[derive(Debug)]
     #[must_use = "futures do nothing unless you use them"]
     pub struct Zip<F1: CompletionFuture, F2: CompletionFuture> {
