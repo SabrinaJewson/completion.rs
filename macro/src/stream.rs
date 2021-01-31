@@ -82,16 +82,21 @@ mod tests {
 
     use quote::quote;
 
+    use crate::block::in_scope;
+
     #[track_caller]
     fn test(input: TokenStream, output: TokenStream) {
         let input: ExprAsync =
             syn::parse2(quote!(async move { #input })).expect("Failed to parse input");
+        let in_scope = in_scope();
         let output: Expr = syn::parse2(quote! {{
             let item = ::core::marker::PhantomData;
             crate::__completion_stream(
                 crate::__completion_async(async move {
                     #[allow(unused_imports)]
                     use crate::__CompletionFutureIntoAwaitable;
+                    #[allow(unused_variables)]
+                    let #in_scope = ();
                     #output
                 }),
                 item
@@ -139,27 +144,43 @@ mod tests {
             #[attr1] yield #[attr2] fut.await;
             yield (yield (yield))
         };
+        let in_scope = in_scope();
         let output = quote! {
             #[attr1]
-            crate::__FutureOrCompletionFuture(
-                crate::__yield_value(
-                    item,
-                    #[attr2]
-                    crate::__FutureOrCompletionFuture(fut).__into_awaitable().await
+            (
+                #in_scope,
+                crate::__FutureOrCompletionFuture(
+                    crate::__yield_value(
+                        item,
+                        #[attr2]
+                        (
+                            #in_scope,
+                            crate::__FutureOrCompletionFuture(fut).__into_awaitable().await
+                        )
+                        .1
+                    )
                 )
-            ).__into_awaitable().await;
+                .__into_awaitable()
+                .await
+            ).1;
 
-            crate::__FutureOrCompletionFuture(
-                crate::__yield_value(item, (
-                    crate::__FutureOrCompletionFuture(
-                        crate::__yield_value(item, (
-                            crate::__FutureOrCompletionFuture(
-                                crate::__yield_value(item, ())
-                            ).__into_awaitable().await
-                        ))
-                    ).__into_awaitable().await
-                ))
-            ).__into_awaitable().await
+            (
+                #in_scope,
+                crate::__FutureOrCompletionFuture(
+                    crate::__yield_value(item, ((
+                        #in_scope,
+                        crate::__FutureOrCompletionFuture(
+                            crate::__yield_value(item, ((
+                                #in_scope,
+                                crate::__FutureOrCompletionFuture(
+                                    crate::__yield_value(item, ())
+                                ).__into_awaitable().await
+                            ).1))
+                        ).__into_awaitable().await
+                    ).1))
+                ).__into_awaitable().await
+            )
+            .1
         };
         test(input, output);
     }
@@ -169,6 +190,7 @@ mod tests {
         let input = quote! {
             let x = #[attr] something?;
         };
+        let in_scope = in_scope();
         let output = quote! {
             let _: ::core::marker::PhantomData<()> = item;
 
@@ -176,12 +198,16 @@ mod tests {
                 ::core::result::Result::Ok(val) => val,
                 ::core::result::Result::Err(e) => {
                     #[allow(clippy::useless_conversion)]
-                    crate::__FutureOrCompletionFuture(
-                        crate::__yield_value(
-                            item,
-                            crate::__Try::from_error(::core::convert::From::from(e))
-                        )
-                    ).__into_awaitable().await;
+                    (
+                        #in_scope,
+                        crate::__FutureOrCompletionFuture(
+                            crate::__yield_value(
+                                item,
+                                crate::__Try::from_error(::core::convert::From::from(e))
+                            )
+                        ).__into_awaitable().await
+                    )
+                    .1;
                     return
                 }
             };

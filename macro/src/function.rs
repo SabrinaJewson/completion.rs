@@ -181,6 +181,8 @@ mod tests {
 
     use quote::quote;
 
+    use crate::block::in_scope;
+
     #[test]
     fn basic() {
         let input = parse_quote! {
@@ -189,12 +191,15 @@ mod tests {
                 |_| fut.await;
             }
         };
+        let in_scope = in_scope();
         let output = quote! {
             #[attr]
             fn foo<'__completion_future>() -> impl c::CompletionFuture<Output = ()> + '__completion_future {
                 c::__completion_async(async move {
                     #[allow(unused_imports)]
                     use c::__CompletionFutureIntoAwaitable;
+                    #[allow(unused_variables)]
+                    let #in_scope = ();
 
                     |_| fut.await;
                 })
@@ -214,6 +219,7 @@ mod tests {
                 fut.await;
             }
         };
+        let in_scope = in_scope();
         let output = quote! {
             pub(super) fn do_stuff<'__completion_future, '__life2, '__life1, '__life0, T: Clone>(
                 &'__life0 mut self,
@@ -229,8 +235,10 @@ mod tests {
                 ::crate::path::__completion_async(async move {
                     #[allow(unused_imports)]
                     use ::crate::path::__CompletionFutureIntoAwaitable;
+                    #[allow(unused_variables)]
+                    let #in_scope = ();
 
-                    ::crate::path::__FutureOrCompletionFuture(fut).__into_awaitable().await;
+                    (#in_scope, ::crate::path::__FutureOrCompletionFuture(fut).__into_awaitable().await).1;
                 })
             }
         };
@@ -280,6 +288,7 @@ mod tests {
                 x.await?
             }
         };
+        let in_scope = in_scope();
         let output = quote! {
             #[outer = "attributes"]
             fn xyz<'__completion_future>() -> ::core::pin::Pin<::std::boxed::Box<
@@ -289,8 +298,10 @@ mod tests {
                 ::std::boxed::Box::pin(c::__completion_async(async move {
                     #[allow(unused_imports)]
                     use c::__CompletionFutureIntoAwaitable;
+                    #[allow(unused_variables)]
+                    let #in_scope = ();
 
-                    c::__FutureOrCompletionFuture(x).__into_awaitable().await?
+                    (#in_scope, c::__FutureOrCompletionFuture(x).__into_awaitable().await).1?
                 }))
             }
         };

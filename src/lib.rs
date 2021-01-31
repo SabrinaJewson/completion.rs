@@ -354,7 +354,7 @@ mod test_utils {
         }
     }
 
-    #[cfg_attr(not(feature = "std"), allow(dead_code))]
+    #[cfg_attr(not(all(feature = "std", feature = "macros")), allow(dead_code))]
     pub(super) fn poll_cancel_once<F: CompletionFuture>(fut: F) -> bool {
         let waker = noop_waker();
         let mut cx = Context::from_waker(&waker);
