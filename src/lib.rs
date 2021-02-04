@@ -28,7 +28,8 @@
 #![allow(
     clippy::module_name_repetitions,
     clippy::shadow_unrelated,
-    clippy::clippy::option_if_let_else
+    clippy::option_if_let_else,
+    clippy::items_after_statements
 )]
 
 #[cfg(feature = "alloc")]

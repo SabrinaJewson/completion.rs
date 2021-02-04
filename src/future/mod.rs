@@ -26,7 +26,7 @@ pub use block_on::block_on;
 #[cfg(feature = "std")]
 mod zip;
 #[cfg(feature = "std")]
-pub use zip::*;
+pub use zip::{zip, Zip};
 
 /// Extension trait for [`CompletionFuture`].
 pub trait CompletionFutureExt: CompletionFuture {
