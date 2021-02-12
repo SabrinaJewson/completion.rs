@@ -26,7 +26,7 @@ pub use block_on::block_on;
 #[cfg(feature = "std")]
 mod join;
 #[cfg(feature = "std")]
-pub use join::{zip, Zip};
+pub use join::{race, race_ok, try_zip, zip, Race, RaceOk, TryZip, Zip};
 
 /// Extension trait for [`CompletionFuture`].
 pub trait CompletionFutureExt: CompletionFuture {

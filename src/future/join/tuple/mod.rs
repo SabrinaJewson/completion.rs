@@ -1,4 +1,4 @@
-//! Futures that join tuples of futures: `zip`, `try_zip`, `race`, `race_biased`.
+//! Futures that join tuples of futures: `zip`, `try_zip`, `race`, `race_ok`.
 
 macro_rules! apply_on_tuples {
     ($macro:ident!) => {
@@ -37,3 +37,12 @@ mod base;
 
 mod zip;
 pub use zip::{zip, Zip};
+
+mod try_zip;
+pub use try_zip::{try_zip, TryZip};
+
+mod race;
+pub use race::{race, Race};
+
+mod race_ok;
+pub use race_ok::{race_ok, RaceOk};

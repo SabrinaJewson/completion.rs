@@ -11,7 +11,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use completion_core::CompletionFuture;
 
 mod tuple;
-pub use tuple::{zip, Zip};
+pub use tuple::*;
 
 /// The payload of a panic.
 pub struct Panic(Box<dyn Any + Send>);
@@ -25,6 +25,21 @@ impl Panic {
     fn into_inner(self) -> Box<dyn Any + Send> {
         self.0
     }
+}
+
+/// A future that outputs a `Result`.
+pub trait TryFuture:
+    CompletionFuture<Output = Result<<Self as TryFuture>::Ok, <Self as TryFuture>::Error>>
+{
+    type Ok;
+    type Error;
+}
+impl<T, E, F> TryFuture for F
+where
+    F: CompletionFuture<Output = Result<T, E>> + ?Sized,
+{
+    type Ok = T;
+    type Error = E;
 }
 
 /// How a future can choose to affect control flow of its containing joined future.
