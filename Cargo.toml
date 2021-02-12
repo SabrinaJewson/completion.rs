@@ -18,6 +18,8 @@ completion-core = { path = "core", version = "0.1.0" }
 completion-io = { path = "io", version = "0.1.0", optional = true }
 completion-macro = { path = "macro", version = "=0.1.0", optional = true }
 
+atomic-waker = "1.0.0"
+concurrent-queue = "1.2.2"
 futures-core = "0.3.12"
 pin-project-lite = "0.2.4"
 

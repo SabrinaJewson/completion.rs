@@ -61,10 +61,13 @@ pub trait CompletionFuture {
     /// this function returns [`Poll::Ready`], the future should be considered complete and should
     /// not be polled again.
     ///
+    /// Note that this may be called before [`poll`](Self::poll) has been called for the first
+    /// time.
+    ///
     /// # Safety
     ///
     /// Once this function has been called and the type does not also implement [`Future`], the user
-    /// **must not** drop for forget the future until it has returned [`Poll::Ready`] or panicked.
+    /// **must not** drop or forget the future until it has returned [`Poll::Ready`] or panicked.
     unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()>;
 }
 

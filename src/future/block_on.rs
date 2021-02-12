@@ -19,7 +19,7 @@ use completion_core::CompletionFuture;
 /// assert_eq!(future::block_on(completion_async! { 5 + 6 }), 11);
 /// ```
 #[cfg_attr(doc_cfg, doc(cfg(feature = "std")))]
-pub fn block_on<F: CompletionFuture>(mut future: F) -> F::Output {
+pub fn block_on<O, F: CompletionFuture<Output = O>>(mut future: F) -> O {
     let mut fut = unsafe { Pin::new_unchecked(&mut future) };
 
     thread_local! {

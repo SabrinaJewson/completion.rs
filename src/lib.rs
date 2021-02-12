@@ -281,26 +281,122 @@ impl<T: CompletionStream> CompletionStream for MustComplete<T> {
 mod test_utils {
     use core::future::Future;
     use core::pin::Pin;
-    use core::task::{Context, Poll, Waker};
+    #[cfg(feature = "std")]
+    use core::task::Waker;
+    use core::task::{Context, Poll};
 
     use completion_core::CompletionFuture;
     use pin_project_lite::pin_project;
 
+    pub(crate) trait CompletionFutureExt: CompletionFuture + Sized {
+        /// Dynamically check the future is polled correctly.
+        fn check(self) -> Check<Self> {
+            Check {
+                fut: self,
+                inner: CheckInner {
+                    state: CheckState::Running,
+                    max_polls: None,
+                    max_cancels: None,
+                    polled_once: false,
+                },
+            }
+        }
+    }
+    impl<T: CompletionFuture> CompletionFutureExt for T {}
+
+    pin_project! {
+        pub(crate) struct Check<F> {
+            #[pin]
+            fut: F,
+            inner: CheckInner,
+        }
+    }
+    /// A separate type that holds the non-future state of a Check so that it supports checking on
+    /// Drop.
+    struct CheckInner {
+        state: CheckState,
+        max_polls: Option<usize>,
+        max_cancels: Option<usize>,
+        polled_once: bool,
+    }
+    impl Drop for CheckInner {
+        fn drop(&mut self) {
+            if self.polled_once {
+                assert_eq!(self.state, CheckState::Finished);
+            }
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    enum CheckState {
+        Running,
+        Cancelling,
+        Finished,
+    }
+
+    impl<F> Check<F> {
+        #[cfg(feature = "std")]
+        pub(crate) fn max_polls(mut self, max_polls: usize) -> Self {
+            self.inner.max_polls = Some(max_polls);
+            self
+        }
+        #[cfg(feature = "std")]
+        pub(crate) fn max_cancels(mut self, max_cancels: usize) -> Self {
+            self.inner.max_cancels = Some(max_cancels);
+            self
+        }
+    }
+    impl<F: CompletionFuture> CompletionFuture for Check<F> {
+        type Output = F::Output;
+        #[track_caller]
+        unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            let this = self.project();
+            assert_eq!(this.inner.state, CheckState::Running);
+            if let Some(max_polls) = &mut this.inner.max_polls {
+                assert_ne!(*max_polls, 0);
+                *max_polls -= 1;
+            }
+            this.inner.polled_once = true;
+            this.inner.state = CheckState::Finished;
+            let poll = this.fut.poll(cx);
+            if poll.is_pending() {
+                this.inner.state = CheckState::Running;
+            }
+            poll
+        }
+        #[track_caller]
+        unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+            let this = self.project();
+            assert_ne!(this.inner.state, CheckState::Finished);
+            if let Some(max_cancels) = &mut this.inner.max_cancels {
+                assert_ne!(*max_cancels, 0);
+                *max_cancels -= 1;
+            }
+            this.inner.polled_once = true;
+            this.inner.state = CheckState::Finished;
+            let poll = this.fut.poll_cancel(cx);
+            if poll.is_pending() {
+                this.inner.state = CheckState::Cancelling;
+            }
+            poll
+        }
+    }
+
     pin_project! {
         /// Future that yields a number of times, before polling the inner future.
-        pub(super) struct Yield<F> {
+        pub(crate) struct Yield<F> {
             times: usize,
             #[pin]
             fut: F,
         }
     }
     impl<F> Yield<F> {
-        #[cfg_attr(not(feature = "std"), allow(dead_code))]
-        pub(super) fn new(times: usize, fut: F) -> Self {
+        #[cfg(feature = "std")]
+        pub(crate) fn new(times: usize, fut: F) -> Self {
             Self { times, fut }
         }
-        #[cfg_attr(not(feature = "std"), allow(dead_code))]
-        pub(super) fn once(fut: F) -> Self {
+        #[cfg(feature = "std")]
+        pub(crate) fn once(fut: F) -> Self {
             Self::new(1, fut)
         }
     }
@@ -336,7 +432,50 @@ mod test_utils {
         }
     }
 
-    pub(super) fn noop_waker() -> Waker {
+    #[cfg(feature = "std")]
+    pub(crate) async fn sleep(duration: core::time::Duration) {
+        use core::sync::atomic::{self, AtomicBool};
+        use std::sync::Arc;
+        use std::thread;
+
+        use atomic_waker::AtomicWaker;
+
+        struct Sleep {
+            inner: Arc<SleepInner>,
+        }
+        struct SleepInner {
+            done: AtomicBool,
+            waker: AtomicWaker,
+        }
+        impl Future for Sleep {
+            type Output = ();
+            fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+                self.inner.waker.register(cx.waker());
+                if self.inner.done.load(atomic::Ordering::SeqCst) {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            }
+        }
+
+        let inner = Arc::new(SleepInner {
+            done: AtomicBool::new(false),
+            waker: AtomicWaker::new(),
+        });
+        thread::spawn({
+            let inner = Arc::clone(&inner);
+            move || {
+                thread::sleep(duration);
+                inner.done.store(true, atomic::Ordering::SeqCst);
+                inner.waker.wake();
+            }
+        });
+        Sleep { inner }.await
+    }
+
+    #[cfg(feature = "std")]
+    pub(crate) fn noop_waker() -> Waker {
         use core::ptr;
         use core::task::{RawWaker, RawWakerVTable};
 
@@ -346,8 +485,8 @@ mod test_utils {
         unsafe { Waker::from_raw(RAW_WAKER) }
     }
 
-    #[cfg_attr(not(feature = "std"), allow(dead_code))]
-    pub(super) fn poll_once<F: CompletionFuture>(fut: F) -> Option<F::Output> {
+    #[cfg(feature = "std")]
+    pub(crate) fn poll_once<F: CompletionFuture>(fut: F) -> Option<F::Output> {
         let waker = noop_waker();
         let mut cx = Context::from_waker(&waker);
 
@@ -358,8 +497,8 @@ mod test_utils {
         }
     }
 
-    #[cfg_attr(not(all(feature = "std", feature = "macros")), allow(dead_code))]
-    pub(super) fn poll_cancel_once<F: CompletionFuture>(fut: F) -> bool {
+    #[cfg(all(feature = "macro", feature = "std"))]
+    pub(crate) fn poll_cancel_once<F: CompletionFuture>(fut: F) -> bool {
         let waker = noop_waker();
         let mut cx = Context::from_waker(&waker);
 

@@ -14,9 +14,21 @@ for_all_features() {
 	$* --no-default-features
 
 	echo
+	echo "features: macro"
+	echo "---------------"
+	$* --no-default-features --features macro
+
+	echo
 	echo "features: alloc"
 	echo "---------------"
 	$* --no-default-features --features alloc
+
+	echo
+	echo "features: alloc, macro"
+	echo "----------------------"
+	$* --no-default-features --features alloc,macro
+
+	MIRIFLAGS="$MIRIFLAGS -Zmiri-disable-isolation"
 
 	echo
 	echo "features: std"
@@ -24,19 +36,11 @@ for_all_features() {
 	$* --no-default-features --features std
 
 	echo
-	echo "features: macro"
-	echo "---------------"
-	$* --no-default-features --features macro
-
-	echo
-	echo "features: macro, alloc"
-	echo "----------------------"
-	$* --no-default-features --features macro,alloc
-
-	echo
-	echo "features: macro, std"
+	echo "features: std, macro"
 	echo "--------------------"
-	$* --no-default-features --features macro,std
+	$* --no-default-features --features std,macro
+
+	unset MIRIFLAGS
 }
 
 echo
