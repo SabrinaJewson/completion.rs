@@ -1,4 +1,3 @@
-use core::convert::Infallible;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
@@ -6,7 +5,7 @@ use core::task::{Context, Poll};
 use completion_core::CompletionFuture;
 use pin_project_lite::pin_project;
 
-use super::super::ControlFlow;
+use super::super::{ControlFlow, RaceFuture};
 use super::base::{Join, JoinTuple};
 
 /// Wait for the first future in a tuple to complete.
@@ -93,29 +92,6 @@ impl<T: RaceTuple> CompletionFuture for Race<T> {
     }
 }
 
-pin_project! {
-    /// A wrapper for a future inside a [`Race`].
-    #[derive(Debug)]
-    pub struct Racing<F> {
-        #[pin]
-        inner: F,
-    }
-}
-impl<F> Racing<F> {
-    fn new(inner: F) -> Self {
-        Self { inner }
-    }
-}
-impl<F: CompletionFuture> CompletionFuture for Racing<F> {
-    type Output = ControlFlow<F::Output, Infallible>;
-    unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.project().inner.poll(cx).map(ControlFlow::Break)
-    }
-    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-        self.project().inner.poll_cancel(cx)
-    }
-}
-
 /// A tuple of futures that can be used in `Race`.
 pub trait RaceTuple {
     /// The tuple that can be used with `Join`.
@@ -132,10 +108,10 @@ macro_rules! impl_race_tuple {
         where
             $($param: CompletionFuture<Output = Output>,)*
         {
-            type JoinTuple = ($(Racing<$param>,)*);
+            type JoinTuple = ($(RaceFuture<$param>,)*);
             fn into_tuple(self) -> Self::JoinTuple {
                 let ($($param,)*) = self;
-                ($(Racing::new($param),)*)
+                ($(RaceFuture::new($param),)*)
             }
 
             type Futures = <Self::JoinTuple as JoinTuple>::Futures;

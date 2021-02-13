@@ -1,4 +1,10 @@
 //! Utilities for the [`CompletionFuture`] trait.
+//!
+//! Unlike the [futures](https://docs.rs/futures) crate, all the joining futures (functions like
+//! [`zip`], [`race`], [`zip_all`], etc) in this module adopt an efficient polling strategy, where
+//! they only poll the futures that issued wakeups, instead of polling every single future whenever
+//! just one of them issues a wakeup. This reduces their complexity from `O(n^3)` to `O(n)`, making
+//! them suitable for large numbers of futures.
 
 #[cfg(feature = "alloc")]
 use alloc::boxed::Box;
@@ -26,7 +32,11 @@ pub use block_on::block_on;
 #[cfg(feature = "std")]
 mod join;
 #[cfg(feature = "std")]
-pub use join::{race, race_ok, try_zip, zip, Race, RaceOk, TryZip, Zip};
+pub use join::{
+    race, race_all, race_ok, race_ok_all, try_zip, try_zip_all, zip, zip_all, Race, RaceAll,
+    RaceOk, RaceOkAll, RaceOkAllErrors, TryZip, TryZipAll, TryZipAllOutput, Zip, ZipAll,
+    ZipAllOutput,
+};
 
 /// Extension trait for [`CompletionFuture`].
 pub trait CompletionFutureExt: CompletionFuture {

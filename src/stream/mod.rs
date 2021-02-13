@@ -26,6 +26,8 @@ pub use unfold::*;
 
 mod from_completion_stream;
 pub use from_completion_stream::FromCompletionStream;
+#[cfg(feature = "std")]
+pub(crate) use from_completion_stream::FromCompletionStreamInner;
 
 /// Extension trait for [`CompletionStream`].
 pub trait CompletionStreamExt: CompletionStream {

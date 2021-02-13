@@ -189,7 +189,6 @@ impl<T: JoinTuple> Join<T> {
             match f(this.futures.as_mut(), &mut cx, i) {
                 Poll::Ready(ControlFlow::Continue(())) => *this.done += 1,
                 Poll::Ready(ControlFlow::Break(b)) => {
-                    *this.polled_once = false;
                     return ControlFlow::Break(b);
                 }
                 Poll::Pending => {}
@@ -231,10 +230,14 @@ impl<T: JoinTuple> CompletionFuture for Join<T> {
                         .map(|_| ControlFlow::Continue(T::take_output(self.project().futures)))
                 }
                 ControlFlow::Break(Ok(val)) => {
-                    *self.as_mut().project().state = State::Broken(val);
+                    let this = self.as_mut().project();
+                    *this.polled_once = false;
+                    *this.state = State::Broken(val);
                 }
                 ControlFlow::Break(Err(panic)) => {
-                    *self.as_mut().project().state = State::Panicked(panic);
+                    let this = self.as_mut().project();
+                    *this.polled_once = false;
+                    *this.state = State::Panicked(panic);
                 }
             }
         }

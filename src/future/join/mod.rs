@@ -9,9 +9,13 @@ use core::task::{Context, Poll};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use completion_core::CompletionFuture;
+use pin_project_lite::pin_project;
 
 mod tuple;
 pub use tuple::*;
+
+mod all;
+pub use all::*;
 
 /// The payload of a panic.
 pub struct Panic(Box<dyn Any + Send>);
@@ -46,12 +50,37 @@ where
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub enum ControlFlow<B, C = ()> {
-    /// The future wishes to wait for all the other futures to complete and return all their
-    /// results together.
-    Continue(C),
     /// The future wishes to discard the results of all the other futures and return this value to
     /// the caller.
     Break(B),
+    /// The future wishes to wait for all the other futures to complete and return all their
+    /// results together.
+    Continue(C),
+}
+
+#[cfg(test)]
+impl<B, C> ControlFlow<B, C> {
+    #[track_caller]
+    fn unwrap_break(self) -> B
+    where
+        C: Debug,
+    {
+        match self {
+            Self::Continue(c) => panic!("Expected `Break`, found `Continue({:?})`", c),
+            Self::Break(b) => b,
+        }
+    }
+
+    #[track_caller]
+    fn unwrap_continue(self) -> C
+    where
+        B: Debug,
+    {
+        match self {
+            Self::Continue(c) => c,
+            Self::Break(b) => panic!("Expected `Continue`, found `Break({:?})`", b),
+        }
+    }
 }
 
 /// A future that outputs a `ControlFlow`.
@@ -172,5 +201,109 @@ impl<F: ControlFlowFuture> FutureState<F> {
             Self::Completed(_) | Self::Cancelled => Poll::Ready(ControlFlow::Continue(())),
             Self::Taken => panic!(),
         }
+    }
+}
+
+pin_project! {
+    /// A wrapper for a future inside `zip` or `zip_all`.
+    #[derive(Debug)]
+    pub struct ZipFuture<F> {
+        #[pin]
+        inner: F,
+    }
+}
+impl<F> ZipFuture<F> {
+    fn new(inner: F) -> Self {
+        Self { inner }
+    }
+}
+impl<F: CompletionFuture> CompletionFuture for ZipFuture<F> {
+    type Output = ControlFlow<Infallible, F::Output>;
+    unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.project().inner.poll(cx).map(ControlFlow::Continue)
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().inner.poll_cancel(cx)
+    }
+}
+
+pin_project! {
+    /// A wrapper for a future inside `try_zip` or `try_zip_all`.
+    #[derive(Debug)]
+    pub struct TryZipFuture<F> {
+        #[pin]
+        inner: F,
+    }
+}
+impl<F> TryZipFuture<F> {
+    fn new(inner: F) -> Self {
+        Self { inner }
+    }
+}
+impl<F, T, E> CompletionFuture for TryZipFuture<F>
+where
+    F: CompletionFuture<Output = Result<T, E>>,
+{
+    type Output = ControlFlow<E, T>;
+    unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.project().inner.poll(cx).map(|res| match res {
+            Ok(val) => ControlFlow::Continue(val),
+            Err(e) => ControlFlow::Break(e),
+        })
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().inner.poll_cancel(cx)
+    }
+}
+
+pin_project! {
+    /// A wrapper for a future inside `race` or `race_all`.
+    #[derive(Debug)]
+    pub struct RaceFuture<F> {
+        #[pin]
+        inner: F,
+    }
+}
+impl<F> RaceFuture<F> {
+    fn new(inner: F) -> Self {
+        Self { inner }
+    }
+}
+impl<F: CompletionFuture> CompletionFuture for RaceFuture<F> {
+    type Output = ControlFlow<F::Output, Infallible>;
+    unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.project().inner.poll(cx).map(ControlFlow::Break)
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().inner.poll_cancel(cx)
+    }
+}
+
+pin_project! {
+    /// A wrapper for a future inside `race_ok` or `race_ok_all`.
+    #[derive(Debug)]
+    pub struct RaceOkFuture<F> {
+        #[pin]
+        inner: F,
+    }
+}
+impl<F> RaceOkFuture<F> {
+    fn new(inner: F) -> Self {
+        Self { inner }
+    }
+}
+impl<F, T, E> CompletionFuture for RaceOkFuture<F>
+where
+    F: CompletionFuture<Output = Result<T, E>>,
+{
+    type Output = ControlFlow<T, E>;
+    unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.project().inner.poll(cx).map(|res| match res {
+            Ok(val) => ControlFlow::Break(val),
+            Err(e) => ControlFlow::Continue(e),
+        })
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().inner.poll_cancel(cx)
     }
 }

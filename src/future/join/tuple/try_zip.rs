@@ -5,7 +5,7 @@ use core::task::{Context, Poll};
 use completion_core::CompletionFuture;
 use pin_project_lite::pin_project;
 
-use super::super::{ControlFlow, TryFuture};
+use super::super::{ControlFlow, TryFuture, TryZipFuture};
 use super::base::{Join, JoinTuple};
 
 /// Wait for all the futures in a tuple to successfully complete or one to return an error.
@@ -75,35 +75,6 @@ impl<T: TryZipTuple> CompletionFuture for TryZip<T> {
     }
 }
 
-pin_project! {
-    /// A wrapper for a future inside a [`Zip`].
-    #[derive(Debug)]
-    pub struct Zipped<F> {
-        #[pin]
-        inner: F,
-    }
-}
-impl<F> Zipped<F> {
-    fn new(inner: F) -> Self {
-        Self { inner }
-    }
-}
-impl<F, T, E> CompletionFuture for Zipped<F>
-where
-    F: CompletionFuture<Output = Result<T, E>>,
-{
-    type Output = ControlFlow<E, T>;
-    unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.project().inner.poll(cx).map(|res| match res {
-            Ok(val) => ControlFlow::Continue(val),
-            Err(e) => ControlFlow::Break(e),
-        })
-    }
-    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-        self.project().inner.poll_cancel(cx)
-    }
-}
-
 /// A tuple of futures that can be used in `Zip`.
 pub trait TryZipTuple {
     /// The tuple that can be used with `Join`.
@@ -120,10 +91,10 @@ macro_rules! impl_try_zip_tuple {
         where
             $($param: TryFuture<Error = Error>,)*
         {
-            type JoinTuple = ($(Zipped<$param>,)*);
+            type JoinTuple = ($(TryZipFuture<$param>,)*);
             fn into_tuple(self) -> Self::JoinTuple {
                 let ($($param,)*) = self;
-                ($(Zipped::new($param),)*)
+                ($(TryZipFuture::new($param),)*)
             }
 
             type Futures = <Self::JoinTuple as JoinTuple>::Futures;

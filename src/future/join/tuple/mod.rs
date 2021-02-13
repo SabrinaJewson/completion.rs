@@ -1,4 +1,7 @@
 //! Futures that join tuples of futures: `zip`, `try_zip`, `race`, `race_ok`.
+//!
+//! This code is difficult to read due to its use of macros to support tuples of arbitrary length.
+//! The `all` variants implement the same algorithms, but are simpler to understand.
 
 macro_rules! apply_on_tuples {
     ($macro:ident!) => {
