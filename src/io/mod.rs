@@ -1,6 +1,21 @@
 //! Utilities for programming with asynchronous I/O.
 
-pub use completion_io::*;
+#[doc(no_inline)]
+pub use std::io::{
+    empty, repeat, sink, Cursor, Empty, Error, ErrorKind, IoSlice, Repeat, Result, SeekFrom, Sink,
+};
+
+// Inline the traits and their helper types as they are commonly used.
+pub use completion_io::{
+    AsyncBufRead, AsyncBufReadWith, AsyncRead, AsyncReadWith, AsyncSeek, AsyncSeekWith, AsyncWrite,
+    AsyncWriteWith, DefaultWriteVectored, ReadBuf, ReadBufMut,
+};
+// Don't inline unimportant future types.
+#[doc(no_inline)]
+pub use completion_io::{
+    ReadCursor, ReadRepeat, ReadSlice, SeekCursor, WriteSlice, WriteVec, WriteVectoredSlice,
+    WriteVectoredVec,
+};
 
 mod read;
 pub use read::*;
