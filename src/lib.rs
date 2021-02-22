@@ -370,16 +370,23 @@ mod test_utils {
 
             // We abort instead of panicking because often panics will be caught when calling
             // `poll_cancel`.
+            #[cfg(feature = "std")]
             if this.inner.state == CheckState::Finished {
                 eprintln!("Check::poll_cancel: polled checked future after completion!");
                 std::process::abort();
             }
+            #[cfg(not(feature = "std"))]
+            assert_ne!(this.inner.state, CheckState::Finished);
 
             if let Some(max_cancels) = &mut this.inner.max_cancels {
+                #[cfg(feature = "std")]
                 if *max_cancels == 0 {
                     eprintln!("Check::poll_cancel: max_cancels is zero!");
                     std::process::abort();
                 }
+                #[cfg(not(feature = "std"))]
+                assert_ne!(*max_cancels, 0);
+
                 *max_cancels -= 1;
             }
             this.inner.polled_once = true;

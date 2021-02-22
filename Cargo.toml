@@ -1,6 +1,6 @@
 [package]
 name = "completion"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["KaiJewson <kai.jewson@gmail.com>"]
 edition = "2018"
 description = "Utilities for writing completion-based asynchronous code"
@@ -14,9 +14,9 @@ categories = ["asynchronous", "no-std"]
 members = ["core", "macro", "io"]
 
 [dependencies]
-completion-core = { path = "core", version = "0.1.0" }
-completion-io = { path = "io", version = "0.1.0", optional = true }
-completion-macro = { path = "macro", version = "=0.1.0", optional = true }
+completion-core = { path = "core", version = "0.2.0" }
+completion-io = { path = "io", version = "0.2.0", optional = true }
+completion-macro = { path = "macro", version = "=0.2.0", optional = true }
 
 atomic-waker = "1.0.0"
 concurrent-queue = "1.2.2"
