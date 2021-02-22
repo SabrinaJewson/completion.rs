@@ -148,7 +148,10 @@ impl<F: ControlFlowFuture> FutureState<F> {
                         Poll::Ready(ControlFlow::Break(Ok(b)))
                     }
                     Ok(Poll::Pending) => Poll::Pending,
-                    Err(panic) => Poll::Ready(ControlFlow::Break(Err(Panic(panic)))),
+                    Err(panic) => {
+                        *this = Self::Cancelled;
+                        Poll::Ready(ControlFlow::Break(Err(Panic(panic))))
+                    }
                 }
             }
             Self::Completed(_) => Poll::Ready(ControlFlow::Continue(())),

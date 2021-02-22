@@ -367,9 +367,19 @@ mod test_utils {
         #[track_caller]
         unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
             let this = self.project();
-            assert_ne!(this.inner.state, CheckState::Finished);
+
+            // We abort instead of panicking because often panics will be caught when calling
+            // `poll_cancel`.
+            if this.inner.state == CheckState::Finished {
+                eprintln!("Check::poll_cancel: polled checked future after completion!");
+                std::process::abort();
+            }
+
             if let Some(max_cancels) = &mut this.inner.max_cancels {
-                assert_ne!(*max_cancels, 0);
+                if *max_cancels == 0 {
+                    eprintln!("Check::poll_cancel: max_cancels is zero!");
+                    std::process::abort();
+                }
                 *max_cancels -= 1;
             }
             this.inner.polled_once = true;
