@@ -174,6 +174,7 @@ impl<F: TryFuture> CompletionFuture for RaceOkAll<F> {
 }
 
 /// An iterator over the errors of the futures in a [`RaceOkAll`].
+#[cfg_attr(doc_cfg, doc(cfg(feature = "std")))]
 pub struct RaceOkAllErrors<F: TryFuture>(JoinAllOutput<RaceOkFuture<F>>);
 
 impl<F: TryFuture> Iterator for RaceOkAllErrors<F> {

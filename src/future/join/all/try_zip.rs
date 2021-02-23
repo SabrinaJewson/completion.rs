@@ -136,6 +136,7 @@ impl<F: TryFuture> CompletionFuture for TryZipAll<F> {
 }
 
 /// An iterator over the successful outputs of futures in a [`TryZipAll`].
+#[cfg_attr(doc_cfg, doc(cfg(feature = "std")))]
 pub struct TryZipAllOutput<F: TryFuture>(JoinAllOutput<TryZipFuture<F>>);
 
 impl<F: TryFuture> Iterator for TryZipAllOutput<F> {
