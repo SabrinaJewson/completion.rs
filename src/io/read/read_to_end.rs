@@ -102,7 +102,10 @@ impl<'a, T: AsyncRead + ?Sized + 'a> CompletionFuture for ReadToEnd<'a, T> {
 
             // Set up the read buffer.
             **this.read_buf = Some(ReadBuf::uninit(slice::from_raw_parts_mut(
-                this.buf.as_mut_ptr().add(this.buf.len()) as *mut MaybeUninit<u8>,
+                this.buf
+                    .as_mut_ptr()
+                    .add(this.buf.len())
+                    .cast::<MaybeUninit<u8>>(),
                 this.buf.capacity() - this.buf.len(),
             )));
             let read_buf = (**this.read_buf).as_mut().unwrap();

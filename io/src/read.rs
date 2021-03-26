@@ -535,9 +535,9 @@ impl<'a> ReadBuf<'a> {
 
         unsafe {
             (
-                slice::from_raw_parts_mut(ptr as *mut u8, self.filled),
+                slice::from_raw_parts_mut(ptr.cast::<u8>(), self.filled),
                 slice::from_raw_parts_mut(
-                    ptr.add(self.filled) as *mut u8,
+                    ptr.add(self.filled).cast::<u8>(),
                     self.initialized - self.filled,
                 ),
                 slice::from_raw_parts_mut(ptr.add(self.initialized), len - self.initialized),

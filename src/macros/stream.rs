@@ -93,7 +93,7 @@ where
         let this = self.project();
 
         let mut yielded = None;
-        let yielded_ptr = &mut yielded as *mut _ as *mut ();
+        let yielded_ptr: *mut () = (&mut yielded as *mut Option<T>).cast();
 
         let guard = ResetYieldedValueGuard(YIELDED_VALUE.with(|cell| cell.replace(yielded_ptr)));
         let res = this.generator.poll(cx);
@@ -113,7 +113,7 @@ where
 
 #[doc(hidden)]
 pub fn __yield_value<T>(_item: PhantomData<T>, value: T) -> impl Future<Output = ()> {
-    let ptr = YIELDED_VALUE.with(Cell::get) as *mut Option<T>;
+    let ptr = YIELDED_VALUE.with(Cell::get).cast::<Option<T>>();
     debug_assert!(!ptr.is_null());
 
     *unsafe { &mut *ptr } = Some(value);

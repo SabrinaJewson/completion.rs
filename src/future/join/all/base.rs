@@ -87,24 +87,21 @@ unsafe impl Sync for WakerState {}
 impl WakerState {
     fn waker(&self) -> RawWaker {
         unsafe fn drop_waker(state: *const ()) {
-            let base_ptr = (*(state as *const WakerState)).base;
-            ArcShared::from_raw(base_ptr);
+            ArcShared::decrement_strong_count((*state.cast::<WakerState>()).base);
         }
 
         const VTABLE: RawWakerVTable = RawWakerVTable::new(
-            |ptr| unsafe { &*(ptr as *const WakerState) }.waker(),
+            |ptr| unsafe { &*ptr.cast::<WakerState>() }.waker(),
             |ptr| unsafe {
-                (*(ptr as *const WakerState)).wake();
+                (*ptr.cast::<WakerState>()).wake();
                 drop_waker(ptr);
             },
-            |ptr| unsafe { &*(ptr as *const WakerState) }.wake(),
+            |ptr| unsafe { &*ptr.cast::<WakerState>() }.wake(),
             drop_waker,
         );
 
-        let arc = unsafe { ArcShared::from_raw(self.base) };
-        mem::forget(ArcShared::clone(&arc));
-        mem::forget(arc);
-        RawWaker::new(self as *const _ as *const (), &VTABLE)
+        unsafe { ArcShared::increment_strong_count(self.base) };
+        RawWaker::new((self as *const Self).cast(), &VTABLE)
     }
 
     fn wake(&self) {
@@ -113,7 +110,7 @@ impl WakerState {
             #[allow(clippy::cast_sign_loss)]
             let index = unsafe {
                 (self as *const Self)
-                    .offset_from(&*shared.waker_states as *const [Self] as *const Self)
+                    .offset_from((&*shared.waker_states as *const [Self]).cast::<Self>())
             } as usize;
 
             shared.to_poll.push(index).unwrap();
@@ -222,7 +219,7 @@ impl<F: ControlFlowFuture> JoinAll<F> {
         match self.poll_with(FutureState::poll_panicked) {
             ControlFlow::Continue(Poll::Ready(state)) => resume_unwind(match state {
                 State::Panicked(payload) => payload.into_inner(),
-                _ => panic!(),
+                _ => panic!("Polled `JoinAll` after completion"),
             }),
             ControlFlow::Continue(Poll::Pending) => {}
             ControlFlow::Break(infallible) => match infallible {},
@@ -381,7 +378,7 @@ mod tests {
     use std::convert::Infallible;
     use std::future::ready;
     #[cfg(not(miri))]
-    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::panic::{catch_unwind, panic_any, AssertUnwindSafe};
     #[cfg(not(miri))]
     use std::time::Duration;
 
@@ -559,10 +556,10 @@ mod tests {
                 .boxed()
                 .check()
                 .max_polls(1),
-                async { panic!(0) }.into_completion().boxed().check(),
-                async { panic!(1) }.into_completion().boxed().check(),
+                async { panic_any(0) }.into_completion().boxed().check(),
+                async { panic_any(1) }.into_completion().boxed().check(),
             ]));
-            panic!()
+            unreachable!()
         }));
 
         assert_eq!(*res.unwrap_err().downcast::<i32>().unwrap(), 0);
@@ -586,13 +583,13 @@ mod tests {
                 .must_complete()
                 .boxed()
                 .check(),
-                async { panic!(0) }
+                async { panic_any(0) }
                     .into_completion()
                     .must_complete()
                     .boxed()
                     .check(),
             ]));
-            panic!()
+            unreachable!()
         }));
 
         assert_eq!(*res.unwrap_err().downcast::<i32>().unwrap(), 0);

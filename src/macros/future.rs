@@ -191,7 +191,6 @@ thread_local! {
 #[doc(hidden)]
 pub fn __completion_async<F: Future>(fut: F) -> impl CompletionFuture<Output = F::Output> {
     pin_project! {
-        #[doc(hidden)]
         struct Wrapper<F> {
             #[pin]
             fut: F,

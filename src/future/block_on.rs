@@ -1,10 +1,9 @@
 use std::cell::RefCell;
 use std::marker::PhantomData;
-use std::mem;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+use std::task::{Context, Poll, Wake, Waker};
 use std::thread::{self, Thread};
 
 use completion_core::CompletionFuture;
@@ -42,7 +41,7 @@ pub fn block_on<O, F: CompletionFuture<Output = O>>(mut future: F) -> O {
 
         loop {
             if let Poll::Ready(output) = unsafe { fut.as_mut().poll(&mut cx) } {
-                return output;
+                break output;
             }
             parker.park();
         }
@@ -59,7 +58,7 @@ fn wake_pair() -> (Parker, Waker) {
             inner: Arc::clone(&inner),
             not_send_or_sync: PhantomData,
         },
-        unsafe { Waker::from_raw(RawWaker::new(Arc::into_raw(inner) as *const _, &VTABLE)) },
+        Waker::from(inner),
     )
 }
 
@@ -67,10 +66,9 @@ struct Parker {
     inner: Arc<WakerInner>,
     not_send_or_sync: PhantomData<*mut ()>,
 }
-
 impl Parker {
     fn park(&self) {
-        while !self.inner.woken.swap(false, Ordering::SeqCst) {
+        while !self.inner.woken.swap(false, Ordering::Relaxed) {
             thread::park();
         }
     }
@@ -80,29 +78,16 @@ struct WakerInner {
     woken: AtomicBool,
     sleeping_thread: Thread,
 }
-
-unsafe fn waker_clone(ptr: *const ()) -> RawWaker {
-    let inner = Arc::from_raw(ptr as *const WakerInner);
-    mem::forget(Arc::clone(&inner));
-    mem::forget(inner);
-    RawWaker::new(ptr, &VTABLE)
-}
-unsafe fn waker_wake(ptr: *const ()) {
-    waker_wake_by_ref(ptr);
-    waker_drop(ptr);
-}
-unsafe fn waker_wake_by_ref(ptr: *const ()) {
-    let inner = &*(ptr as *const WakerInner);
-    if !inner.woken.swap(true, Ordering::SeqCst) {
-        inner.sleeping_thread.unpark();
+impl Wake for WakerInner {
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+    fn wake_by_ref(self: &Arc<Self>) {
+        if !self.woken.swap(true, Ordering::Relaxed) {
+            self.sleeping_thread.unpark();
+        }
     }
 }
-unsafe fn waker_drop(ptr: *const ()) {
-    Arc::from_raw(ptr as *const WakerInner);
-}
-
-const VTABLE: RawWakerVTable =
-    RawWakerVTable::new(waker_clone, waker_wake, waker_wake_by_ref, waker_drop);
 
 #[test]
 fn test_block_on() {

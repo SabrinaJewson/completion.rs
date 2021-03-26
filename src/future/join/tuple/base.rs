@@ -86,25 +86,22 @@ unsafe impl<T: JoinTuple> Sync for WakerState<T> {}
 
 impl<T: JoinTuple> WakerState<T> {
     unsafe fn drop_waker(state: *const ()) {
-        let base_ptr = (*(state as *const Self)).base;
-        ArcShared::from_raw(base_ptr);
+        ArcShared::decrement_strong_count((*state.cast::<Self>()).base);
     }
 
     const WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
-        |ptr| unsafe { &*(ptr as *const Self) }.waker(),
+        |ptr| unsafe { &*ptr.cast::<Self>() }.waker(),
         |ptr| unsafe {
-            (*(ptr as *const Self)).wake();
+            (*ptr.cast::<Self>()).wake();
             Self::drop_waker(ptr);
         },
-        |ptr| unsafe { &*(ptr as *const Self) }.wake(),
+        |ptr| unsafe { &*ptr.cast::<Self>() }.wake(),
         Self::drop_waker,
     );
 
     fn waker(&self) -> RawWaker {
-        let arc = unsafe { ArcShared::from_raw(self.base) };
-        mem::forget(ArcShared::clone(&arc));
-        mem::forget(arc);
-        RawWaker::new(self as *const _ as *const (), &Self::WAKER_VTABLE)
+        unsafe { ArcShared::increment_strong_count(self.base) };
+        RawWaker::new((self as *const Self).cast(), &Self::WAKER_VTABLE)
     }
 
     fn wake(&self) {
@@ -113,7 +110,7 @@ impl<T: JoinTuple> WakerState<T> {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let index = unsafe {
                 (self as *const Self)
-                    .offset_from(shared.waker_states.as_ref() as *const [Self] as *const Self)
+                    .offset_from((shared.waker_states.as_ref() as *const [Self]).cast::<Self>())
             } as u8;
             shared.to_poll.push(index).unwrap();
             shared.waker.wake();
@@ -208,7 +205,7 @@ impl<T: JoinTuple> Join<T> {
         match self.poll_with(T::poll_panicked) {
             ControlFlow::Continue(Poll::Ready(state)) => resume_unwind(match state {
                 State::Panicked(payload) => payload.into_inner(),
-                _ => panic!(),
+                _ => panic!("Polled `Join` after completion"),
             }),
             ControlFlow::Continue(Poll::Pending) => {}
             ControlFlow::Break(infallible) => match infallible {},
@@ -390,7 +387,7 @@ macro_rules! impl_tuple {
                     #[allow(unused_assignments)]
                     {pos += 1}
                 )*
-                panic!()
+                unreachable!("Called `poll_one` on tuple with out of range index")
             }
 
             fn poll_cancel(
@@ -407,7 +404,7 @@ macro_rules! impl_tuple {
                     #[allow(unused_assignments)]
                     {pos += 1}
                 )*
-                panic!()
+                unreachable!("Called `poll_cancel` on tuple with out of range index")
             }
 
             fn poll_panicked(
@@ -424,7 +421,7 @@ macro_rules! impl_tuple {
                     #[allow(unused_assignments)]
                     {pos += 1}
                 )*
-                panic!()
+                unreachable!("Called `poll_panicked` on tuple with out of range index")
             }
 
             fn take_output(futures: Pin<&mut Self::Futures>) -> Self::Output {
@@ -441,7 +438,7 @@ mod tests {
     use super::*;
 
     use std::future::ready;
-    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::panic::{catch_unwind, panic_any, AssertUnwindSafe};
     use std::time::Duration;
 
     use crate::future::{block_on, CompletionFutureExt, FutureExt};
@@ -591,8 +588,8 @@ mod tests {
                     .must_complete()
                     .check()
                     .max_polls(1),
-                    async { panic!(0) }.into_completion().check(),
-                    async { panic!(1) }.into_completion().check(),
+                    async { panic_any(0) }.into_completion().check(),
+                    async { panic_any(1) }.into_completion().check(),
                 )))
             }));
 
@@ -615,7 +612,7 @@ mod tests {
                     .into_completion()
                     .must_complete()
                     .check(),
-                    async { panic!(0) }
+                    async { panic_any(0) }
                         .into_completion()
                         .must_complete()
                         .check(),

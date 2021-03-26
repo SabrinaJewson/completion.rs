@@ -157,7 +157,8 @@ impl<F: ControlFlowFuture> FutureState<F> {
             Self::Completed(_) => Poll::Ready(ControlFlow::Continue(())),
             // Panic when the future has been cancelled as at that point the joiner should be
             // calling `poll_cancel` or `poll_panicked`.
-            Self::Taken | Self::Cancelled => panic!(),
+            Self::Cancelled => panic!("Called `FutureState::poll` after cancellation"),
+            Self::Taken => panic!("Called `FutureState::poll` after output has been taken"),
         }
     }
 
@@ -180,7 +181,7 @@ impl<F: ControlFlowFuture> FutureState<F> {
                 }
             }
             Self::Completed(_) | Self::Cancelled => Poll::Ready(ControlFlow::Continue(())),
-            Self::Taken => panic!(),
+            Self::Taken => panic!("Called `FutureState::poll_cancel` after output has been taken"),
         }
     }
 
@@ -202,7 +203,9 @@ impl<F: ControlFlowFuture> FutureState<F> {
                 }
             }
             Self::Completed(_) | Self::Cancelled => Poll::Ready(ControlFlow::Continue(())),
-            Self::Taken => panic!(),
+            Self::Taken => {
+                panic!("Called `FutureState::poll_panicked` after output has been taken")
+            }
         }
     }
 }
