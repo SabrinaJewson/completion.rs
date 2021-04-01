@@ -36,6 +36,11 @@ pub trait AsyncReadExt: AsyncRead {
     /// If any other read error is encountered then this function immediately returns. Any bytes
     /// which have already been read will be appended to `buf`.
     ///
+    /// # Cancellation
+    ///
+    /// If the returned future is cancelled, all previously read bytes will be appended to `buf`
+    /// and no data will be lost.
+    ///
     /// # Examples
     ///
     /// ```
@@ -73,6 +78,11 @@ pub trait AsyncReadExt: AsyncRead {
     /// string will be left unchanged. Crucially, this is _different_ from the behaviour of
     /// [`read_to_end`](Self::read_to_end), which will leave any bytes that have already been read
     /// in the buffer.
+    ///
+    /// # Cancellation
+    ///
+    /// If the returned future is cancelled, the string will be left unchanged. This is different
+    /// from the behaviour of [`read_to_end`](Self::read_to_end), which will not lose any data.
     ///
     /// # Examples
     ///

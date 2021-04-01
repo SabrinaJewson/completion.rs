@@ -16,6 +16,9 @@ use core::task::{Context, Poll};
 #[cfg(feature = "std")]
 use std::panic::{catch_unwind, AssertUnwindSafe, UnwindSafe};
 
+#[doc(no_inline)]
+pub use core::future::{pending, ready, Pending, Ready};
+
 #[cfg(feature = "std")]
 use pin_project_lite::pin_project;
 

@@ -118,11 +118,21 @@ impl<'a, T: AsyncRead + ?Sized + 'a> CompletionFuture for ReadToEnd<'a, T> {
         }
     }
     unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-        if let Some(fut) = self.project().fut.as_pin_mut() {
-            fut.poll_cancel(cx)
-        } else {
-            Poll::Ready(())
+        let mut this = self.project();
+
+        if let Some(fut) = this.fut.as_mut().as_pin_mut() {
+            ready!(fut.poll_cancel(cx));
+            this.fut.set(None);
+
+            // Make sure that any bytes that were written after cancellation are not lost.
+
+            // There is no future, so we can create a mutable reference to `read_buf` without
+            // aliasing.
+            let filled = this.read_buf.take().unwrap().filled().len();
+            this.buf.set_len(this.buf.len() + filled);
         }
+
+        Poll::Ready(())
     }
 }
 impl<'a, T: AsyncRead + ?Sized + 'a> Future for ReadToEnd<'a, T>
@@ -142,7 +152,7 @@ mod tests {
 
     use std::io::{Cursor, Error};
 
-    use crate::future::block_on;
+    use crate::future::{self, block_on};
 
     use super::super::{
         test_utils::{poll_once, YieldingReader},
@@ -223,5 +233,15 @@ mod tests {
         ]);
         assert_eq!(block_on(reader.read_to_end(&mut v)).unwrap(), 5);
         assert_eq!(v, [1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn cancellation_doesnt_lose_data() {
+        let mut reader = YieldingReader::empty().after_cancellation(vec![&[4, 5, 6][..], &[0, 0]]);
+
+        let mut v = vec![1, 2, 3];
+        let future = future::race((reader.read_to_end(&mut v), future::ready(Ok(400))));
+        assert_eq!(block_on(future).unwrap(), 400);
+        assert_eq!(v, vec![1, 2, 3, 4, 5, 6]);
     }
 }

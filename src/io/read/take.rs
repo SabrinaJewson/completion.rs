@@ -1,7 +1,8 @@
 #![allow(clippy::cast_possible_truncation)]
 
+use std::convert::Infallible;
 use std::future::Future;
-use std::io::Result;
+use std::io;
 use std::marker::PhantomPinned;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -133,23 +134,27 @@ pin_project! {
     }
 }
 
-impl<T: AsyncRead> CompletionFuture for ReadTake<'_, T> {
-    type Output = Result<()>;
-
-    unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+impl<'a, T: AsyncRead> ReadTake<'a, T> {
+    fn poll_with<E, F>(self: Pin<&mut Self>, cx: &mut Context<'_>, f: F) -> Poll<Result<(), E>>
+    where
+        F: FnOnce(
+            Pin<&mut <T as AsyncReadWith<'a>>::ReadFuture>,
+            &mut Context<'_>,
+        ) -> Poll<Result<(), E>>,
+    {
         let mut this = self.project();
 
         if let Some(fut) = this.fut.as_mut().as_pin_mut() {
-            ready!(fut.poll(cx))?;
+            ready!(f(fut, cx))?;
             this.fut.set(None);
 
-            // Sync the buffers if the future has written the other buffer.
+            // Sync the buffers if the future has written to the other buffer.
             if let Some(short_buf) = this.short_buf.take() {
                 let initialized = short_buf.initialized().len();
                 let filled = short_buf.filled().len();
                 drop(short_buf);
 
-                this.buf.assume_init(initialized - *this.initial_filled);
+                unsafe { this.buf.assume_init(initialized - *this.initial_filled) };
                 this.buf.set_filled(filled);
             }
 
@@ -158,19 +163,24 @@ impl<T: AsyncRead> CompletionFuture for ReadTake<'_, T> {
 
         Poll::Ready(Ok(()))
     }
+}
+
+impl<T: AsyncRead> CompletionFuture for ReadTake<'_, T> {
+    type Output = io::Result<()>;
+
+    unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.poll_with(cx, |fut, cx| fut.poll(cx))
+    }
     unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-        if let Some(fut) = self.project().fut.as_pin_mut() {
-            fut.poll_cancel(cx)
-        } else {
-            Poll::Ready(())
-        }
+        self.poll_with(cx, |fut, cx| fut.poll_cancel(cx).map(Ok::<_, Infallible>))
+            .map(drop)
     }
 }
 impl<'a, T: AsyncRead> Future for ReadTake<'a, T>
 where
-    <T as AsyncReadWith<'a>>::ReadFuture: Future<Output = Result<()>>,
+    <T as AsyncReadWith<'a>>::ReadFuture: Future<Output = io::Result<()>>,
 {
-    type Output = Result<()>;
+    type Output = io::Result<()>;
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         unsafe { CompletionFuture::poll(self, cx) }
     }
@@ -210,7 +220,7 @@ pin_project! {
 }
 
 impl<'a, T: AsyncBufRead> CompletionFuture for FillBufTake<'a, T> {
-    type Output = Result<&'a [u8]>;
+    type Output = io::Result<&'a [u8]>;
 
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
@@ -234,9 +244,9 @@ impl<'a, T: AsyncBufRead> CompletionFuture for FillBufTake<'a, T> {
 }
 impl<'a, T: AsyncBufRead> Future for FillBufTake<'a, T>
 where
-    <T as AsyncBufReadWith<'a>>::FillBufFuture: Future<Output = Result<&'a [u8]>>,
+    <T as AsyncBufReadWith<'a>>::FillBufFuture: Future<Output = io::Result<&'a [u8]>>,
 {
-    type Output = Result<&'a [u8]>;
+    type Output = io::Result<&'a [u8]>;
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         unsafe { CompletionFuture::poll(self, cx) }
     }
@@ -248,7 +258,7 @@ mod tests {
 
     use std::mem::MaybeUninit;
 
-    use crate::future::block_on;
+    use crate::future::{self, block_on};
 
     use super::super::{test_utils::YieldingReader, AsyncReadExt};
 
@@ -283,5 +293,20 @@ mod tests {
         let mut s = String::new();
         block_on(reader.read_to_string(&mut s)).unwrap();
         assert_eq!(s, "Hello Wo");
+    }
+
+    #[test]
+    fn cancellation_doesnt_lose_data() {
+        let mut reader = YieldingReader::empty()
+            .after_cancellation(vec![&[1, 2, 3][..], &[0, 0]])
+            .take(5);
+
+        let mut storage = [MaybeUninit::uninit(); 10];
+        let mut buf = ReadBuf::uninit(&mut storage);
+        let future = future::race((reader.read(buf.as_mut()), future::ready(Ok(()))));
+        block_on(future).unwrap();
+        assert_eq!(buf.into_filled(), &[1, 2, 3]);
+
+        assert_eq!(reader.limit(), 2);
     }
 }

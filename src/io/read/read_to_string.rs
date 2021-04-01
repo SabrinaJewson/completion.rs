@@ -101,11 +101,20 @@ impl<'a, T: AsyncRead + ?Sized + 'a> CompletionFuture for ReadToString<'a, T> {
         Poll::Ready(res)
     }
     unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-        if let Some(inner) = self.project().inner.as_pin_mut() {
-            inner.poll_cancel(cx)
-        } else {
-            Poll::Ready(())
+        let mut this = self.project();
+
+        if let Some(inner) = this.inner.as_mut().as_pin_mut() {
+            ready!(inner.poll_cancel(cx));
+            this.inner.set(None);
+
+            // Reset the string to its initial state.
+
+            // The future is gone now, so we can safely create a mutable reference without aliasing.
+            let buf = &mut **this.buf;
+            buf.set_len(*this.initial_len);
+            **this.s = String::from_utf8_unchecked(mem::take(buf));
         }
+        Poll::Ready(())
     }
 }
 impl<'a, T: AsyncRead + ?Sized + 'a> Future for ReadToString<'a, T>
@@ -123,7 +132,7 @@ where
 mod tests {
     use super::*;
 
-    use crate::future::block_on;
+    use crate::future::{self, block_on};
 
     use super::super::test_utils::YieldingReader;
 
@@ -165,6 +174,17 @@ mod tests {
             block_on(reader.read_to_string(&mut s)).unwrap_err().kind(),
             ErrorKind::InvalidData,
         );
+        assert_eq!(s, "Hello");
+    }
+
+    #[test]
+    fn cancellation_doesnt_change_string() {
+        let mut reader =
+            YieldingReader::new(vec![Ok(&[0, 1, 2])]).after_cancellation(vec![&[0, 1, 2]]);
+
+        let mut s = "Hello".to_owned();
+        let future = future::race((reader.read_to_string(&mut s), future::ready(Ok(200))));
+        assert_eq!(block_on(future).unwrap(), 200);
         assert_eq!(s, "Hello");
     }
 }

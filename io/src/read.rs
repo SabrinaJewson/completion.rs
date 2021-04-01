@@ -21,6 +21,9 @@ impl<T: for<'a> AsyncReadWith<'a> + ?Sized> AsyncRead for T {}
 /// Read bytes from a source asynchronously with a specific lifetime.
 pub trait AsyncReadWith<'a> {
     /// The future that reads from the source.
+    ///
+    /// If this future is cancelled but the operation was still able to successfully complete, the
+    /// passed in [`ReadBufMut`] should be filled in with the read bytes to avoid losing data.
     type ReadFuture: CompletionFuture<Output = Result<()>>;
 
     /// Pull some bytes from this source into the specified buffer.
@@ -254,7 +257,7 @@ fn test_impls_traits<'a>() {
     assert_impls::<&'a mut Cursor<&'a [u8]>>();
 }
 
-/// Macro to define the commend methods in both `ReadBuf` and `ReadBufMut`.
+/// Macro to define the common methods in both `ReadBuf` and `ReadBufMut`.
 macro_rules! common_read_buf_methods {
     ($get:expr, $get_mut:expr $(,)?) => {
         /// Get the total capacity of the buffer.

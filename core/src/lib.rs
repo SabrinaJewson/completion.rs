@@ -64,6 +64,9 @@ pub trait CompletionFuture {
     /// Note that this may be called before [`poll`](Self::poll) has been called for the first
     /// time.
     ///
+    /// If this type also implements [`Future`], it is incorrect to fill the body in with anything
+    /// but `Poll::Ready(())`.
+    ///
     /// # Safety
     ///
     /// Once this function has been called and the type does not also implement [`Future`], the user
@@ -191,6 +194,12 @@ pub trait CompletionStream {
     /// This function should only be called when the stream is in the running state or in the
     /// cancelling state. Once this function returns [`Poll::Ready`], the stream should be
     /// considered exhausted and should not be polled again.
+    ///
+    /// Note that this may be called before [`poll_next`](Self::poll_next) has been called for the
+    /// first time.
+    ///
+    /// If this type also implements [`Stream`], it is incorrect to fill the body in with anything
+    /// but `Poll::Ready(())`.
     ///
     /// # Safety
     ///

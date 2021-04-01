@@ -45,7 +45,7 @@ unsafe fn extend_lifetime<'a, T: ?Sized>(r: &T) -> &'a T {
 #[cfg(test)]
 mod test_utils {
     use std::collections::VecDeque;
-    use std::future::{self, Future};
+    use std::future;
     use std::io::{IoSlice, Result};
     use std::pin::Pin;
     use std::task::{Context, Poll};
@@ -58,6 +58,7 @@ mod test_utils {
     #[derive(Debug)]
     pub(super) struct YieldingReader {
         items: VecDeque<Result<Vec<u8>>>,
+        cancellation_items: VecDeque<Vec<u8>>,
     }
     impl YieldingReader {
         pub(super) fn new<I, S>(items: I) -> Self
@@ -70,7 +71,22 @@ mod test_utils {
                     .into_iter()
                     .map(|i| i.map(|s| s.as_ref().to_owned()))
                     .collect(),
+                cancellation_items: VecDeque::new(),
             }
+        }
+        pub(super) fn empty() -> Self {
+            Self {
+                items: VecDeque::new(),
+                cancellation_items: VecDeque::new(),
+            }
+        }
+        pub(super) fn after_cancellation<I>(mut self, items: I) -> Self
+        where
+            I: IntoIterator,
+            I::Item: AsRef<[u8]>,
+        {
+            self.cancellation_items = items.into_iter().map(|s| s.as_ref().to_owned()).collect();
+            self
         }
     }
     impl<'a> AsyncReadWith<'a> for YieldingReader {
@@ -104,14 +120,19 @@ mod test_utils {
                 None => Ok(()),
             })
         }
-        unsafe fn poll_cancel(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+        unsafe fn poll_cancel(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+            if let Some(bytes) = self.reader.cancellation_items.pop_front() {
+                let buf_remaining = self.buf.remaining();
+                if buf_remaining < bytes.len() {
+                    self.buf.append(&bytes[..buf_remaining]);
+                    self.reader
+                        .cancellation_items
+                        .push_front(bytes[buf_remaining..].to_owned());
+                } else {
+                    self.buf.append(&bytes);
+                }
+            }
             Poll::Ready(())
-        }
-    }
-    impl Future for ReadFuture<'_> {
-        type Output = Result<()>;
-        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-            unsafe { CompletionFuture::poll(self, cx) }
         }
     }
 
