@@ -132,7 +132,7 @@ where
 mod tests {
     use super::*;
 
-    use crate::future::{self, block_on};
+    use crate::future::{block_on, CompletionFutureExt};
 
     use super::super::test_utils::YieldingReader;
 
@@ -183,8 +183,7 @@ mod tests {
             YieldingReader::new(vec![Ok(&[0, 1, 2])]).after_cancellation(vec![&[0, 1, 2]]);
 
         let mut s = "Hello".to_owned();
-        let future = future::race((reader.read_to_string(&mut s), future::ready(Ok(200))));
-        assert_eq!(block_on(future).unwrap(), 200);
+        assert!(block_on(reader.read_to_string(&mut s).now_or_never()).is_none());
         assert_eq!(s, "Hello");
     }
 }

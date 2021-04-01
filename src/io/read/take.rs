@@ -258,7 +258,7 @@ mod tests {
 
     use std::mem::MaybeUninit;
 
-    use crate::future::{self, block_on};
+    use crate::future::{block_on, CompletionFutureExt};
 
     use super::super::{test_utils::YieldingReader, AsyncReadExt};
 
@@ -303,8 +303,7 @@ mod tests {
 
         let mut storage = [MaybeUninit::uninit(); 10];
         let mut buf = ReadBuf::uninit(&mut storage);
-        let future = future::race((reader.read(buf.as_mut()), future::ready(Ok(()))));
-        block_on(future).unwrap();
+        assert!(block_on(reader.read(buf.as_mut()).now_or_never()).is_none());
         assert_eq!(buf.into_filled(), &[1, 2, 3]);
 
         assert_eq!(reader.limit(), 2);

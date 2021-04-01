@@ -66,6 +66,9 @@ pub trait CompletionStreamExt: CompletionStream {
 
     /// Get the next item in the stream.
     ///
+    /// Be aware that if you cancel the returned future, the stream itself will be cancelled and so
+    /// any further attempts to use it may panic, block forever, or do other unexpected things.
+    ///
     /// # Examples
     ///
     /// ```

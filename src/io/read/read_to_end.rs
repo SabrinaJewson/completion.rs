@@ -152,7 +152,7 @@ mod tests {
 
     use std::io::{Cursor, Error};
 
-    use crate::future::{self, block_on};
+    use crate::future::{block_on, CompletionFutureExt};
 
     use super::super::{
         test_utils::{poll_once, YieldingReader},
@@ -240,8 +240,7 @@ mod tests {
         let mut reader = YieldingReader::empty().after_cancellation(vec![&[4, 5, 6][..], &[0, 0]]);
 
         let mut v = vec![1, 2, 3];
-        let future = future::race((reader.read_to_end(&mut v), future::ready(Ok(400))));
-        assert_eq!(block_on(future).unwrap(), 400);
+        assert!(block_on(reader.read_to_end(&mut v).now_or_never()).is_none());
         assert_eq!(v, vec![1, 2, 3, 4, 5, 6]);
     }
 }

@@ -3,7 +3,7 @@
 //! Unlike the [futures](https://docs.rs/futures) crate, all the joining futures (functions like
 //! [`zip`], [`race`], [`zip_all`], etc) in this module adopt an efficient polling strategy, where
 //! they only poll the futures that issued wakeups, instead of polling every single future whenever
-//! just one of them issues a wakeup. This reduces their complexity from `O(n^3)` to `O(n)`, making
+//! just one of them issues a wakeup. This reduces their complexity from `O(n^2)` to `O(n)`, making
 //! them suitable for large numbers of futures.
 
 #[cfg(feature = "alloc")]
@@ -41,6 +41,9 @@ pub use join::{
     ZipAllOutput,
 };
 
+mod now_or_never;
+pub use now_or_never::NowOrNever;
+
 /// Extension trait for [`CompletionFuture`].
 pub trait CompletionFutureExt: CompletionFuture {
     /// A convenience for calling [`CompletionFuture::poll`] on [`Unpin`] futures.
@@ -74,6 +77,25 @@ pub trait CompletionFutureExt: CompletionFuture {
         Self: Sized,
     {
         MustComplete { inner: self }
+    }
+
+    /// Get the future's output if it's ready, or cancel it if it's not.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use completion::{future, CompletionFutureExt};
+    ///
+    /// # completion::future::block_on(completion::completion_async! {
+    /// assert_eq!(future::ready(5).now_or_never().await, Some(5));
+    /// assert_eq!(future::pending::<()>().now_or_never().await, None);
+    /// # });
+    /// ```
+    fn now_or_never(self) -> NowOrNever<Self>
+    where
+        Self: Sized,
+    {
+        NowOrNever::new(self)
     }
 
     /// Catch panics in the future.

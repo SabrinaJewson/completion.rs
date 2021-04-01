@@ -38,6 +38,7 @@ extern crate alloc;
 use core::future::Future;
 use core::ops::{Deref, DerefMut};
 use core::pin::Pin;
+use core::task::Waker;
 use core::task::{Context, Poll};
 
 #[doc(no_inline)]
@@ -281,8 +282,6 @@ impl<T: CompletionStream> CompletionStream for MustComplete<T> {
 mod test_utils {
     use core::future::Future;
     use core::pin::Pin;
-    #[cfg(feature = "std")]
-    use core::task::Waker;
     use core::task::{Context, Poll};
 
     use completion_core::CompletionFuture;
@@ -492,23 +491,9 @@ mod test_utils {
     }
 
     #[cfg(feature = "std")]
-    pub(crate) fn noop_waker() -> Waker {
-        use core::ptr;
-        use core::task::{RawWaker, RawWakerVTable};
-
-        const WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(|_| RAW_WAKER, drop, drop, drop);
-        const RAW_WAKER: RawWaker = RawWaker::new(ptr::null(), &WAKER_VTABLE);
-
-        unsafe { Waker::from_raw(RAW_WAKER) }
-    }
-
-    #[cfg(feature = "std")]
     pub(crate) fn poll_once<F: CompletionFuture>(fut: F) -> Option<F::Output> {
-        let waker = noop_waker();
-        let mut cx = Context::from_waker(&waker);
-
         futures_lite::pin!(fut);
-        match unsafe { fut.poll(&mut cx) } {
+        match unsafe { fut.poll(&mut crate::noop_cx()) } {
             Poll::Ready(val) => Some(val),
             Poll::Pending => None,
         }
@@ -516,10 +501,23 @@ mod test_utils {
 
     #[cfg(all(feature = "macro", feature = "std"))]
     pub(crate) fn poll_cancel_once<F: CompletionFuture>(fut: F) -> bool {
-        let waker = noop_waker();
-        let mut cx = Context::from_waker(&waker);
-
         futures_lite::pin!(fut);
-        unsafe { fut.poll_cancel(&mut cx) }.is_ready()
+        unsafe { fut.poll_cancel(&mut crate::noop_cx()) }.is_ready()
     }
+}
+
+pub(crate) fn noop_cx() -> Context<'static> {
+    use core::ptr;
+    use core::task::{RawWaker, RawWakerVTable};
+
+    const WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(|_| RAW_WAKER, drop, drop, drop);
+    const RAW_WAKER: RawWaker = RawWaker::new(ptr::null(), &WAKER_VTABLE);
+
+    struct SyncRawWaker(RawWaker);
+    unsafe impl Sync for SyncRawWaker {}
+    static SYNC_RAW_WAKER: SyncRawWaker = SyncRawWaker(RAW_WAKER);
+
+    // SAFETY: RawWaker and Waker and guaranteed to have the same layout.
+    let waker = unsafe { &*(&SYNC_RAW_WAKER.0 as *const RawWaker).cast::<Waker>() };
+    Context::from_waker(waker)
 }
