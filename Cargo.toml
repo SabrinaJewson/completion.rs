@@ -1,6 +1,6 @@
 [package]
 name = "completion"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["KaiJewson <kai.jewson@gmail.com>"]
 edition = "2018"
 description = "Utilities for writing completion-based asynchronous code"
