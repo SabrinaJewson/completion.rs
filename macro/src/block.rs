@@ -10,14 +10,13 @@ pub(crate) fn transform(mut expr: ExprAsync, crate_path: &CratePath) -> TokenStr
 
     crate::transform_top_level(&mut expr.block.stmts, crate_path, |expr| {
         if let Expr::Await(expr_await) = expr {
-            let base = &expr_await.base;
+            let base = &*expr_await.base;
             let await_span = expr_await.await_token.span;
             let attrs = OuterAttrs(&expr_await.attrs);
-            let crate_path = crate_path.with_span(await_span);
 
             *expr = Expr::Verbatim(quote_spanned! {await_span=>
                 #attrs
-                (#in_scope, #crate_path::__FutureOrCompletionFuture(#base).__into_awaitable().await).1
+                (#in_scope, #base.__into_future_or_completion_future().__into_awaitable().await).1
             });
         }
     });
@@ -37,7 +36,7 @@ pub(crate) fn transform(mut expr: ExprAsync, crate_path: &CratePath) -> TokenStr
         Stmt::Semi(
             Expr::Verbatim(quote_spanned! {expr.async_token.span=>
                 #[allow(unused_imports)]
-                use #crate_path::__CompletionFutureIntoAwaitable;
+                use #crate_path::{__CompletionFutureIntoAwaitable, __IntoFutureOrCompletionFuture};
 
                 #[allow(unused_variables)]
                 let #in_scope = ()
@@ -98,7 +97,7 @@ pub(crate) fn transform(mut expr: ExprAsync, crate_path: &CratePath) -> TokenStr
 /// })
 /// ```
 ///
-/// If this code would compile, it would be unsound - however, due, to our
+/// If this code would compile, it would be unsound - however, due to our
 /// `awaitable_completion_futures` local variable, it is prevented from even compiling.
 /// Additionally, because this span's hygiene is `Span::mixed_site()`, user-defined
 /// `awaitable_completion_futures` variables will not be able to interfere.

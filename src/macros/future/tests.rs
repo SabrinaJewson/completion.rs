@@ -75,6 +75,15 @@ fn nested() {
     block_on(nested_async());
 }
 
+#[test]
+fn await_parens() {
+    block_on(completion_async! {
+        let mut future = yield_now();
+        (&mut future).await;
+        { &mut future }.await;
+    });
+}
+
 #[completion(crate = crate)]
 #[allow(single_use_lifetimes, clippy::trivially_copy_pass_by_ref)]
 async fn lifetimes_async<'a, 'b, T>(x: &'a T, y: &&&String, z: &mut Cow<'a, str>) -> &'a T {

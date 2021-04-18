@@ -287,9 +287,24 @@ impl<F: CompletionFuture> Future for Await<F> {
 // We want to be able to `.await` both regular futures and completion futures in blocks generated
 // by the macro. To do this, we use inherent method-based specialization.
 
+/// Trait for converting `T` into `__FutureOrCompletionFuture<T>`.
+///
+/// This trait is present to allow the macro to expand to `x.__into_future_or_completion_future()`
+/// instead of `__FutureOrCompletionFuture(x)`. This is important because with the latter method,
+/// code like `(&mut x).await` would expand to `__FutureOrCompletionFuture((&mut x))` and then
+/// trigger the `unused_parens` lint. However, with this method `(&mut x).await` expands to
+/// `(&mut x).__into_future_or_completion_future()` which doesn't trigger the lint.
+#[doc(hidden)]
+pub trait __IntoFutureOrCompletionFuture: Sized {
+    fn __into_future_or_completion_future(self) -> __FutureOrCompletionFuture<Self> {
+        __FutureOrCompletionFuture(self)
+    }
+}
+impl<T> __IntoFutureOrCompletionFuture for T {}
+
 #[doc(hidden)]
 #[allow(missing_debug_implementations)]
-pub struct __FutureOrCompletionFuture<F>(pub F);
+pub struct __FutureOrCompletionFuture<F>(F);
 
 impl<F: Future> __FutureOrCompletionFuture<F> {
     /// This method will be called when the type implements `Future`.
