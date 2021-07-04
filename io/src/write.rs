@@ -27,6 +27,11 @@ pub trait AsyncWriteWith<'a> {
     /// The future that writes a vector of buffers to the source, and outputs the number of bytes
     /// written. If your writer does not have efficient vectored writes, set this to
     /// [`DefaultWriteVectored<'a, Self>`](DefaultWriteVectored).
+    ///
+    /// Note that it is **not** considered a semver breaking change to change this associated type
+    /// from [`DefaultWriteVectored`] to another type, so if you are using a writer whose associated
+    /// `WriteVectoredFuture` type is [`DefaultWriteVectored`], you should not rely on it staying
+    /// that way.
     type WriteVectoredFuture: CompletionFuture<Output = Result<usize>>;
 
     /// Like [`write`](Self::write), except that it writes from a slice of buffers.

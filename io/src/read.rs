@@ -69,6 +69,11 @@ pub trait AsyncReadWith<'a, 'b, ImplicitBounds: sealed::Sealed = sealed::Implici
     /// have efficient vectored reads, set this to [`DefaultReadVectored<'a, 'b,
     /// Self>`](DefaultReadVectored).
     ///
+    /// Note that it is **not** considered a semver breaking change to change this associated type
+    /// from [`DefaultReadVectored`] to another type, so if you are using a reader whose associated
+    /// `ReadVectoredFuture` type is [`DefaultReadVectored`], you should not rely on it staying
+    /// that way.
+    ///
     /// If this future is cancelled but the operation was still able to successfully complete, the
     /// passed in [`ReadBufsRef`] should be filled in with the read bytes to avoid losing data.
     type ReadVectoredFuture: CompletionFuture<Output = Result<()>>;
