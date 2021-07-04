@@ -4,6 +4,9 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use completion_core::CompletionFuture;
+use pin_project_lite::pin_project;
+
+use crate::util::derive_completion_future;
 
 /// Write bytes to a source asynchronously.
 ///
@@ -18,16 +21,13 @@ pub trait AsyncWriteWith<'a> {
     /// The future that writes to the source, and outputs the number of bytes written.
     type WriteFuture: CompletionFuture<Output = Result<usize>>;
 
+    /// Write a buffer to the writer, returning how many bytes were written.
+    fn write(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture;
+
     /// The future that writes a vector of buffers to the source, and outputs the number of bytes
     /// written. If your writer does not have efficient vectored writes, set this to
     /// [`DefaultWriteVectored<'a, Self>`](DefaultWriteVectored).
     type WriteVectoredFuture: CompletionFuture<Output = Result<usize>>;
-
-    /// The future that flushes the output stream.
-    type FlushFuture: CompletionFuture<Output = Result<()>>;
-
-    /// Write a buffer to the writer, returning how many bytes were written.
-    fn write(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture;
 
     /// Like [`write`](Self::write), except that it writes from a slice of buffers.
     ///
@@ -36,7 +36,8 @@ pub trait AsyncWriteWith<'a> {
     /// the buffers concatenated would.
     ///
     /// If your writer does not have efficient vectored writes, call
-    /// [`DefaultWriteVectored::new(self, bufs)`](DefaultWriteVectored::new).
+    /// [`DefaultWriteVectored::new(self, bufs)`](DefaultWriteVectored::new). Otherwise, make sure
+    /// to override [`is_write_vectored`](Self::is_write_vectored) to return `true`.
     fn write_vectored(&'a mut self, bufs: &'a [IoSlice<'a>]) -> Self::WriteVectoredFuture;
 
     /// Determines if this `AsyncWrite`r has an efficient [`write_vectored`](Self::write_vectored)
@@ -46,6 +47,9 @@ pub trait AsyncWriteWith<'a> {
     fn is_write_vectored(&self) -> bool {
         false
     }
+
+    /// The future that flushes the output stream.
+    type FlushFuture: CompletionFuture<Output = Result<()>>;
 
     /// Flush this output stream, ensuring that all intermediately buffered contents reach their
     /// destination.
@@ -188,16 +192,7 @@ impl Future for WriteSlice<'_, '_> {
         Poll::Ready(std::io::Write::write(this.slice, this.buf))
     }
 }
-impl CompletionFuture for WriteSlice<'_, '_> {
-    type Output = Result<usize>;
-
-    unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Future::poll(self, cx)
-    }
-    unsafe fn poll_cancel(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
-        Poll::Ready(())
-    }
-}
+derive_completion_future!(WriteSlice<'_, '_>);
 
 /// Future for [`write_vectored`](AsyncWriteWith::write_vectored) on a byte slice (`&mut [u8]`).
 #[derive(Debug)]
@@ -215,16 +210,7 @@ impl Future for WriteVectoredSlice<'_, '_> {
         Poll::Ready(std::io::Write::write_vectored(this.slice, this.bufs))
     }
 }
-impl CompletionFuture for WriteVectoredSlice<'_, '_> {
-    type Output = Result<usize>;
-
-    unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Future::poll(self, cx)
-    }
-    unsafe fn poll_cancel(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
-        Poll::Ready(())
-    }
-}
+derive_completion_future!(WriteVectoredSlice<'_, '_>);
 
 impl<'a> AsyncWriteWith<'a> for Vec<u8> {
     type WriteFuture = WriteVec<'a>;
@@ -263,16 +249,7 @@ impl Future for WriteVec<'_> {
         Poll::Ready(std::io::Write::write(this.vec, this.buf))
     }
 }
-impl CompletionFuture for WriteVec<'_> {
-    type Output = Result<usize>;
-
-    unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Future::poll(self, cx)
-    }
-    unsafe fn poll_cancel(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
-        Poll::Ready(())
-    }
-}
+derive_completion_future!(WriteVec<'_>);
 
 /// Future for [`write_vectored`](AsyncWriteWith::write_vectored) on a [`Vec<u8>`](Vec).
 #[derive(Debug)]
@@ -288,16 +265,7 @@ impl Future for WriteVectoredVec<'_> {
         Poll::Ready(std::io::Write::write_vectored(this.vec, this.bufs))
     }
 }
-impl CompletionFuture for WriteVectoredVec<'_> {
-    type Output = Result<usize>;
-
-    unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Future::poll(self, cx)
-    }
-    unsafe fn poll_cancel(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
-        Poll::Ready(())
-    }
-}
+derive_completion_future!(WriteVectoredVec<'_>);
 
 // TODO: implement AsyncWrite for:
 // - Cursor<&mut [u8]>
@@ -321,14 +289,17 @@ fn test_impls_traits<'a>() {
     assert_impls::<Vec<u8>>();
 }
 
-/// A default implementation of [`WriteVectoredFuture`](AsyncWriteWith::WriteVectoredFuture) for
-/// types that don't have efficient vectored writes.
-///
-/// This will forward to [`write`](AsyncWriteWith::write) with the first nonempty buffer provided,
-/// or an empty one if none exists.
-#[derive(Debug)]
-pub struct DefaultWriteVectored<'a, T: AsyncWriteWith<'a>> {
-    future: T::WriteFuture,
+pin_project! {
+    /// A default implementation of [`WriteVectoredFuture`](AsyncWriteWith::WriteVectoredFuture) for
+    /// types that don't have efficient vectored writes.
+    ///
+    /// This will forward to [`write`](AsyncWriteWith::write) with the first nonempty buffer provided,
+    /// or an empty one if none exists.
+    #[derive(Debug)]
+    pub struct DefaultWriteVectored<'a, T: AsyncWriteWith<'a>> {
+        #[pin]
+        future: T::WriteFuture,
+    }
 }
 
 impl<'a, T: AsyncWriteWith<'a>> DefaultWriteVectored<'a, T> {
@@ -344,10 +315,10 @@ impl<'a, T: AsyncWriteWith<'a>> CompletionFuture for DefaultWriteVectored<'a, T>
     type Output = Result<usize>;
 
     unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Pin::map_unchecked_mut(self, |this| &mut this.future).poll(cx)
+        unsafe { self.project().future.poll(cx) }
     }
     unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-        Pin::map_unchecked_mut(self, |this| &mut this.future).poll_cancel(cx)
+        unsafe { self.project().future.poll_cancel(cx) }
     }
 }
 impl<'a, T: AsyncWriteWith<'a>> Future for DefaultWriteVectored<'a, T>

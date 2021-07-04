@@ -10,7 +10,8 @@
     unused_qualifications,
     missing_debug_implementations,
     explicit_outlives_requirements,
-    unused_lifetimes
+    unused_lifetimes,
+    unsafe_op_in_unsafe_fn
 )]
 #![allow(
     clippy::module_name_repetitions,
@@ -20,8 +21,14 @@
 
 #[doc(no_inline)]
 pub use std::io::{
-    empty, repeat, sink, Cursor, Empty, Error, ErrorKind, IoSlice, Repeat, Result, SeekFrom, Sink,
+    empty, repeat, sink, Cursor, Empty, Error, ErrorKind, IoSlice, IoSliceMut, Repeat, Result,
+    SeekFrom, Sink,
 };
+
+#[macro_use]
+mod util;
+
+mod sys;
 
 mod read;
 pub use read::*;

@@ -6,6 +6,8 @@ use std::task::{Context, Poll};
 
 use completion_core::CompletionFuture;
 
+use crate::util::derive_completion_future;
+
 /// A cursor which can be moved within a stream of bytes.
 ///
 /// This is an asynchronous version of [`std::io::Seek`].
@@ -84,16 +86,7 @@ impl<T: AsRef<[u8]>> Future for SeekCursor<'_, T> {
         Poll::Ready(std::io::Seek::seek(unsafe { &mut *this.cursor }, this.pos))
     }
 }
-impl<T: AsRef<[u8]>> CompletionFuture for SeekCursor<'_, T> {
-    type Output = Result<u64>;
-
-    unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Future::poll(self, cx)
-    }
-    unsafe fn poll_cancel(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
-        Poll::Ready(())
-    }
-}
+derive_completion_future!([T: AsRef<[u8]>] SeekCursor<'_, T>);
 
 #[cfg(test)]
 #[allow(dead_code, clippy::extra_unused_lifetimes)]

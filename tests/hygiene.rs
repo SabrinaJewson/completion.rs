@@ -47,8 +47,8 @@ async fn _abc() {
     )
     .await;
 
-    let _ = ::completion::completion_stream! {
+    ::core::mem::drop(::completion::completion_stream! {
         async {}.await;
         yield 1;
-    };
+    });
 }

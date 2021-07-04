@@ -3,7 +3,7 @@ use std::io::{Cursor, Empty, Result};
 
 use completion_core::CompletionFuture;
 
-use crate::AsyncReadWith;
+use crate::AsyncRead;
 
 /// Read bytes from a source that has an internal buffer asynchronously.
 ///
@@ -14,7 +14,7 @@ pub trait AsyncBufRead: for<'a> AsyncBufReadWith<'a> {}
 impl<T: for<'a> AsyncBufReadWith<'a> + ?Sized> AsyncBufRead for T {}
 
 /// Read bytes from a source that has an internal buffer asynchronously with a specific lifetime.
-pub trait AsyncBufReadWith<'a>: AsyncReadWith<'a> {
+pub trait AsyncBufReadWith<'a>: AsyncRead {
     /// Future that returns the contents of the internal buffer.
     type FillBufFuture: CompletionFuture<Output = Result<&'a [u8]>>;
 
@@ -38,7 +38,7 @@ pub trait AsyncBufReadWith<'a>: AsyncReadWith<'a> {
     fn fill_buf(&'a mut self) -> Self::FillBufFuture;
 
     /// Tell this buffer that `amt` bytes have been consumed from the buffer, and so should no
-    /// longer be returned in calls to [`read`](AsyncReadWith::read).
+    /// longer be returned in calls to [`read`](crate::AsyncReadWith::read).
     ///
     /// This function is a lower-level call. It needs to be paired with the [`fill_buf`] method to
     /// function properly. This function does not perform any I/O, it simply informs this object

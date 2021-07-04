@@ -49,6 +49,14 @@ echo "======"
 for_all_features cargo clippy --workspace --all-targets
 
 echo
+echo "completion-io: cross platform clippy"
+echo "===================================="
+cargo clippy -p completion-io --all-targets --target x86_64-unknown-linux-gnu
+cargo clippy -p completion-io --all-targets --target x86_64-pc-windows-gnu
+cargo clippy -p completion-io --all-targets --target wasm32-wasi
+cargo clippy -p completion-io --all-targets --target wasm32-unknown-unknown
+
+echo
 echo "Doctests"
 echo "========"
 cargo test --workspace --doc
