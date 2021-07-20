@@ -10,7 +10,8 @@ use super::extend_lifetime_mut;
 use aliasable::AliasableMut;
 use completion_core::CompletionFuture;
 use completion_io::{
-    AsyncBufReadWith, AsyncRead, AsyncReadWith, AsyncWriteWith, ReadBuf, ReadBufMut,
+    AsyncBufReadWith, AsyncRead, AsyncReadWith, AsyncWrite, AsyncWriteWith, ReadBuf, ReadBufRef,
+    ReadBufsRef,
 };
 use futures_core::ready;
 use pin_project_lite::pin_project;
@@ -97,10 +98,10 @@ impl<R> BufReader<R> {
     }
 }
 
-impl<'a, R: AsyncRead> AsyncReadWith<'a> for BufReader<R> {
+impl<'a, 'b, R: AsyncRead> AsyncReadWith<'a, 'b> for BufReader<R> {
     type ReadFuture = ReadBufReader<'a, R>;
 
-    fn read(&'a mut self, buf: ReadBufMut<'a>) -> Self::ReadFuture {
+    fn read(&'a mut self, buf: ReadBufRef<'a>) -> Self::ReadFuture {
         // If there are no bytes in our buffer, and we're trying to read more bytes than the size
         // of the buffer, bypass the buffer entirely.
         let state = if self.pos == self.buf.filled().len() && buf.capacity() >= self.buf.capacity()
@@ -118,6 +119,30 @@ impl<'a, R: AsyncRead> AsyncReadWith<'a> for BufReader<R> {
         };
         ReadBufReader { state }
     }
+
+    type ReadVectoredFuture = ReadVectoredBufReader<'a, 'b, R>;
+
+    fn read_vectored(&'a mut self, bufs: ReadBufsRef<'a, 'b>) -> Self::ReadVectoredFuture {
+        // If there are no bytes in our buffer, and we're trying to read more bytes than the size
+        // of the buffer, bypass the buffer entirely.
+        let state = if self.pos == self.buf.filled().len() {
+            ReadVBufReaderState::Bypass {
+                fut: self.inner.read_vectored(bufs),
+            }
+        } else {
+            let mut reader = AliasableMut::from_unique(self);
+            ReadVBufReaderState::FillBuf {
+                fut: unsafe { extend_lifetime_mut(&mut *reader) }.fill_buf(),
+                bufs,
+                reader,
+            }
+        };
+        ReadVectoredBufReader { state }
+    }
+
+    fn is_read_vectored(&self) -> bool {
+        self.inner.is_read_vectored()
+    }
 }
 
 pin_project! {
@@ -133,13 +158,13 @@ pin_project! {
         // We are bypassing the internal buffer and reading directly with the reader.
         Bypass {
             #[pin]
-            fut: <R as AsyncReadWith<'a>>::ReadFuture,
+            fut: <R as AsyncReadWith<'a, 'static>>::ReadFuture,
         },
         // We are filling our buffer.
         FillBuf {
             #[pin]
             fut: FillBufBufReader<'a, R>,
-            buf: ReadBufMut<'a>,
+            buf: ReadBufRef<'a>,
             reader: AliasableMut<'a, BufReader<R>>,
         }
     }
@@ -174,7 +199,71 @@ impl<R: AsyncRead> CompletionFuture for ReadBufReader<'_, R> {
 }
 impl<'a, R: AsyncRead> Future for ReadBufReader<'a, R>
 where
-    <R as AsyncReadWith<'a>>::ReadFuture: Future<Output = Result<()>>,
+    <R as AsyncReadWith<'a, 'static>>::ReadFuture: Future<Output = Result<()>>,
+{
+    type Output = Result<()>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        unsafe { CompletionFuture::poll(self, cx) }
+    }
+}
+
+pin_project! {
+    /// Future for [`read_vectored`](AsyncReadWith::read_vectored) on a [`BufReader`].
+    pub struct ReadVectoredBufReader<'a, 'b, R: AsyncRead> {
+        #[pin]
+        state: ReadVBufReaderState<'a, 'b, R>,
+    }
+}
+pin_project! {
+    #[project = ReadVBufReaderStateProj]
+    enum ReadVBufReaderState<'a, 'b, R: AsyncRead> {
+        // We are bypassing the internal buffer and reading directly with the reader.
+        Bypass {
+            #[pin]
+            fut: <R as AsyncReadWith<'a, 'b>>::ReadVectoredFuture,
+        },
+        // We are filling our buffer.
+        FillBuf {
+            #[pin]
+            fut: FillBufBufReader<'a, R>,
+            bufs: ReadBufsRef<'a, 'b>,
+            reader: AliasableMut<'a, BufReader<R>>,
+        },
+    }
+}
+
+impl<R: AsyncRead> CompletionFuture for ReadVectoredBufReader<'_, '_, R> {
+    type Output = Result<()>;
+
+    unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+
+        match this.state.project() {
+            ReadVBufReaderStateProj::Bypass { fut } => fut.poll(cx),
+            ReadVBufReaderStateProj::FillBuf { fut, bufs, reader } => {
+                let amt = {
+                    let available = ready!(fut.poll(cx))?;
+                    let amt = std::cmp::min(bufs.remaining(), available.len());
+                    bufs.append(&available[..amt]);
+                    amt
+                };
+                reader.consume(amt);
+                Poll::Ready(Ok(()))
+            }
+        }
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        match self.project().state.project() {
+            ReadVBufReaderStateProj::Bypass { fut } => fut.poll_cancel(cx),
+            ReadVBufReaderStateProj::FillBuf { fut, .. } => fut.poll_cancel(cx),
+        }
+    }
+}
+impl<'a, 'b, R: AsyncRead> Future for ReadVectoredBufReader<'a, 'b, R>
+where
+    <R as AsyncReadWith<'a, 'b>>::ReadFuture: Future<Output = Result<()>>,
+    <R as AsyncReadWith<'a, 'b>>::ReadVectoredFuture: Future<Output = Result<()>>,
 {
     type Output = Result<()>;
 
@@ -212,7 +301,7 @@ pin_project! {
     /// Future for [`fill_buf`](AsyncBufReadWith::fill_buf) on a [`BufReader`].
     pub struct FillBufBufReader<'a, R: AsyncRead> {
         #[pin]
-        fut: Option<<R as AsyncReadWith<'a>>::ReadFuture>,
+        fut: Option<<R as AsyncReadWith<'a, 'static>>::ReadFuture>,
         buf: Option<AliasableMut<'a, OwnedReadBuf>>,
         pos: usize,
     }
@@ -244,7 +333,7 @@ impl<'a, R: AsyncRead> CompletionFuture for FillBufBufReader<'a, R> {
 }
 impl<'a, R: AsyncRead> Future for FillBufBufReader<'a, R>
 where
-    <R as AsyncReadWith<'a>>::ReadFuture: Future<Output = Result<()>>,
+    <R as AsyncReadWith<'a, 'static>>::ReadFuture: Future<Output = Result<()>>,
 {
     type Output = Result<&'a [u8]>;
 
@@ -253,10 +342,10 @@ where
     }
 }
 
-impl<'a, R: AsyncWriteWith<'a>> AsyncWriteWith<'a> for BufReader<R> {
-    type WriteFuture = R::WriteFuture;
-    type WriteVectoredFuture = R::WriteVectoredFuture;
-    type FlushFuture = R::FlushFuture;
+impl<'a, R: AsyncWrite> AsyncWriteWith<'a> for BufReader<R> {
+    type WriteFuture = <R as AsyncWriteWith<'a>>::WriteFuture;
+    type WriteVectoredFuture = <R as AsyncWriteWith<'a>>::WriteVectoredFuture;
+    type FlushFuture = <R as AsyncWriteWith<'a>>::FlushFuture;
 
     fn write(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture {
         self.inner.write(buf)
@@ -286,8 +375,8 @@ impl OwnedReadBuf {
         Self(ReadBuf::uninit(slice))
     }
 
-    fn get_mut(&mut self) -> ReadBufMut<'_> {
-        self.0.as_mut()
+    fn get_mut(&mut self) -> ReadBufRef<'_> {
+        self.0.as_ref()
     }
 }
 impl Deref for OwnedReadBuf {
@@ -300,7 +389,7 @@ impl Drop for OwnedReadBuf {
     fn drop(&mut self) {
         let buf = mem::replace(&mut self.0, ReadBuf::uninit(&mut []));
         let capacity = buf.capacity();
-        let ptr = buf.into_all().as_mut_ptr();
+        let ptr = buf.into_inner().as_mut_ptr();
 
         unsafe { Vec::from_raw_parts(ptr, 0, capacity) };
     }
@@ -375,24 +464,24 @@ mod tests {
         assert_eq!(buffered.capacity(), 4);
 
         let mut buffer = [0; 3];
-        block_on(buffered.read(ReadBuf::new(&mut buffer).as_mut())).unwrap();
+        block_on(buffered.read(ReadBuf::new(&mut buffer).as_ref())).unwrap();
         assert_eq!(buffer, *b"som");
 
         let mut buffer = [0; 3];
-        block_on(buffered.read(ReadBuf::new(&mut buffer).as_mut())).unwrap();
+        block_on(buffered.read(ReadBuf::new(&mut buffer).as_ref())).unwrap();
         assert_eq!(buffer, *b"e\0\0");
 
         let mut buffer = [0; 4];
-        block_on(buffered.read(ReadBuf::new(&mut buffer).as_mut())).unwrap();
+        block_on(buffered.read(ReadBuf::new(&mut buffer).as_ref())).unwrap();
         assert_eq!(buffer, *b" dat");
 
         let mut buffer = [0; 3];
-        block_on(buffered.read(ReadBuf::new(&mut buffer).as_mut())).unwrap();
+        block_on(buffered.read(ReadBuf::new(&mut buffer).as_ref())).unwrap();
         assert_eq!(buffer, *b"a\0\0");
 
         // Bypass
         let mut buffer = [0; 9];
-        block_on(buffered.read(ReadBuf::new(&mut buffer).as_mut())).unwrap();
+        block_on(buffered.read(ReadBuf::new(&mut buffer).as_ref())).unwrap();
         assert_eq!(buffer, *b"more data");
     }
 }

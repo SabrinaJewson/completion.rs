@@ -10,7 +10,8 @@ use std::task::{Context, Poll};
 use aliasable::{boxed::AliasableBox, AliasableMut};
 use completion_core::CompletionFuture;
 use completion_io::{
-    AsyncBufRead, AsyncBufReadWith, AsyncRead, AsyncReadWith, ReadBuf, ReadBufMut,
+    AsyncBufRead, AsyncBufReadWith, AsyncRead, AsyncReadWith, DefaultReadVectored, ReadBuf,
+    ReadBufRef, ReadBufsRef,
 };
 use futures_core::ready;
 use pin_project_lite::pin_project;
@@ -65,10 +66,10 @@ impl<T> Take<T> {
     }
 }
 
-impl<'a, T: AsyncRead> AsyncReadWith<'a> for Take<T> {
+impl<'a, 'b, T: AsyncRead + 'static> AsyncReadWith<'a, 'b> for Take<T> {
     type ReadFuture = ReadTake<'a, T>;
 
-    fn read(&'a mut self, buf: ReadBufMut<'a>) -> Self::ReadFuture {
+    fn read(&'a mut self, buf: ReadBufRef<'a>) -> Self::ReadFuture {
         let mut buf = AliasableMut::from_unique(unsafe { buf.into_mut() });
 
         // If we have reached EOF, bypass the reader entirely.
@@ -89,7 +90,7 @@ impl<'a, T: AsyncRead> AsyncReadWith<'a> for Take<T> {
             let (short_buf, used_buf) = if buf.remaining() as u64 > self.limit {
                 let limit = self.limit as usize;
 
-                let shortened = &mut unsafe { buf.all_mut() }[..initial_filled + limit];
+                let shortened = &mut unsafe { buf.inner_mut() }[..initial_filled + limit];
                 let mut short_buf = ReadBuf::uninit(unsafe { extend_lifetime_mut(shortened) });
                 unsafe {
                     short_buf
@@ -105,7 +106,7 @@ impl<'a, T: AsyncRead> AsyncReadWith<'a> for Take<T> {
             };
 
             ReadTake {
-                fut: Some(self.inner.read(used_buf.as_mut())),
+                fut: Some(self.inner.read(used_buf.as_ref())),
                 short_buf,
                 _pinned: PhantomPinned,
                 buf,
@@ -114,13 +115,19 @@ impl<'a, T: AsyncRead> AsyncReadWith<'a> for Take<T> {
             }
         }
     }
+
+    type ReadVectoredFuture = DefaultReadVectored<'a, 'b, Self>;
+
+    fn read_vectored(&'a mut self, bufs: ReadBufsRef<'a, 'b>) -> Self::ReadVectoredFuture {
+        DefaultReadVectored::new(self, bufs)
+    }
 }
 
 pin_project! {
     /// Future for [`read`](AsyncReadWith::read) on a [`Take`].
     pub struct ReadTake<'a, T: AsyncRead> {
         #[pin]
-        fut: Option<<T as AsyncReadWith<'a>>::ReadFuture>,
+        fut: Option<<T as AsyncReadWith<'a, 'static>>::ReadFuture>,
         // The shortened buffer held by the future, `None` if `limit` is large enough that it isn't
         // necessary.
         short_buf: Option<AliasableBox<ReadBuf<'a>>>,
@@ -138,7 +145,7 @@ impl<'a, T: AsyncRead> ReadTake<'a, T> {
     fn poll_with<E, F>(self: Pin<&mut Self>, cx: &mut Context<'_>, f: F) -> Poll<Result<(), E>>
     where
         F: FnOnce(
-            Pin<&mut <T as AsyncReadWith<'a>>::ReadFuture>,
+            Pin<&mut <T as AsyncReadWith<'a, 'static>>::ReadFuture>,
             &mut Context<'_>,
         ) -> Poll<Result<(), E>>,
     {
@@ -178,7 +185,7 @@ impl<T: AsyncRead> CompletionFuture for ReadTake<'_, T> {
 }
 impl<'a, T: AsyncRead> Future for ReadTake<'a, T>
 where
-    <T as AsyncReadWith<'a>>::ReadFuture: Future<Output = io::Result<()>>,
+    <T as AsyncReadWith<'a, 'static>>::ReadFuture: Future<Output = io::Result<()>>,
 {
     type Output = io::Result<()>;
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -186,7 +193,7 @@ where
     }
 }
 
-impl<'a, T: AsyncBufRead> AsyncBufReadWith<'a> for Take<T> {
+impl<'a, T: AsyncBufRead + 'static> AsyncBufReadWith<'a> for Take<T> {
     type FillBufFuture = FillBufTake<'a, T>;
 
     fn fill_buf(&'a mut self) -> Self::FillBufFuture {
@@ -268,21 +275,21 @@ mod tests {
 
         let mut storage = [MaybeUninit::uninit(); 4];
         let mut buf = ReadBuf::uninit(&mut storage);
-        block_on(reader.read(buf.as_mut())).unwrap();
+        block_on(reader.read(buf.as_ref())).unwrap();
         assert_eq!(buf.into_filled(), b"Hell");
 
         let mut storage = [0; 8];
         let mut buf = ReadBuf::new(&mut storage);
 
-        block_on(reader.read(buf.as_mut())).unwrap();
+        block_on(reader.read(buf.as_ref())).unwrap();
         assert_eq!(buf.filled(), b"o ");
 
         buf.clear();
-        block_on(reader.read(buf.as_mut())).unwrap();
+        block_on(reader.read(buf.as_ref())).unwrap();
         assert_eq!(buf.filled(), b"World!");
 
         buf.clear();
-        block_on(reader.read(buf.as_mut())).unwrap();
+        block_on(reader.read(buf.as_ref())).unwrap();
         assert_eq!(buf.filled(), b"");
     }
 
@@ -303,7 +310,7 @@ mod tests {
 
         let mut storage = [MaybeUninit::uninit(); 10];
         let mut buf = ReadBuf::uninit(&mut storage);
-        assert!(block_on(reader.read(buf.as_mut()).now_or_never()).is_none());
+        assert!(block_on(reader.read(buf.as_ref()).now_or_never()).is_none());
         assert_eq!(buf.into_filled(), &[1, 2, 3]);
 
         assert_eq!(reader.limit(), 2);

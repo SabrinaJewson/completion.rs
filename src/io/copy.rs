@@ -98,7 +98,7 @@ pin_project! {
         PreRead,
         Reading {
             #[pin]
-            fut: <R as AsyncReadWith<'a>>::ReadFuture,
+            fut: <R as AsyncReadWith<'a, 'static>>::ReadFuture,
         },
         Writing {
             #[pin]
@@ -131,7 +131,7 @@ where
                     let reader = extend_lifetime_mut(&mut **this.reader);
                     let buf = extend_lifetime_mut(buf);
                     this.state.set(CopyState::Reading {
-                        fut: reader.read(buf.as_mut()),
+                        fut: reader.read(buf.as_ref()),
                     });
                 }
                 CopyStateProj::Reading { fut } => {
@@ -180,7 +180,7 @@ impl<'a, R, W> Future for Copy<'a, R, W>
 where
     R: 'a + ?Sized + AsyncRead,
     W: 'a + ?Sized + AsyncWrite,
-    <R as AsyncReadWith<'a>>::ReadFuture: Future<Output = Result<()>>,
+    <R as AsyncReadWith<'a, 'static>>::ReadFuture: Future<Output = Result<()>>,
     <W as AsyncWriteWith<'a>>::WriteFuture: Future<Output = Result<u64>>,
 {
     type Output = Result<u64>;

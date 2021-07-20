@@ -1,5 +1,5 @@
 use std::mem::MaybeUninit;
-use std::slice;
+use std::ptr;
 
 #[repr(transparent)]
 pub(crate) struct MaybeUninitIoSliceMut(*mut [MaybeUninit<u8>]);

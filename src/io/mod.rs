@@ -8,7 +8,7 @@ pub use std::io::{
 // Inline the traits and their helper types as they are commonly used.
 pub use completion_io::{
     AsyncBufRead, AsyncBufReadWith, AsyncRead, AsyncReadWith, AsyncSeek, AsyncSeekWith, AsyncWrite,
-    AsyncWriteWith, DefaultWriteVectored, ReadBuf, ReadBufMut,
+    AsyncWriteWith, DefaultWriteVectored, ReadBuf, ReadBufRef,
 };
 // Don't inline unimportant future types.
 #[doc(no_inline)]
@@ -51,7 +51,8 @@ mod test_utils {
     use std::task::{Context, Poll};
 
     use completion_core::CompletionFuture;
-    use completion_io::{AsyncBufReadWith, AsyncReadWith, AsyncWriteWith, ReadBufMut};
+    use completion_io::{AsyncBufReadWith, AsyncWriteWith};
+    use completion_io::{AsyncReadWith, DefaultReadVectored, ReadBufRef, ReadBufsRef};
 
     pub(crate) use crate::test_utils::*;
 
@@ -89,16 +90,22 @@ mod test_utils {
             self
         }
     }
-    impl<'a> AsyncReadWith<'a> for YieldingReader {
+    impl<'a, 'b> AsyncReadWith<'a, 'b> for YieldingReader {
         type ReadFuture = Yield<ReadFuture<'a>>;
 
-        fn read(&'a mut self, buf: ReadBufMut<'a>) -> Self::ReadFuture {
+        fn read(&'a mut self, buf: ReadBufRef<'a>) -> Self::ReadFuture {
             Yield::once(ReadFuture { reader: self, buf })
+        }
+
+        type ReadVectoredFuture = DefaultReadVectored<'a, 'b, Self>;
+
+        fn read_vectored(&'a mut self, bufs: ReadBufsRef<'a, 'b>) -> Self::ReadVectoredFuture {
+            DefaultReadVectored::new(self, bufs)
         }
     }
     pub(super) struct ReadFuture<'a> {
         reader: &'a mut YieldingReader,
-        buf: ReadBufMut<'a>,
+        buf: ReadBufRef<'a>,
     }
     impl CompletionFuture for ReadFuture<'_> {
         type Output = Result<()>;

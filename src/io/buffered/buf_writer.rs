@@ -5,7 +5,10 @@ use std::task::{Context, Poll};
 
 use aliasable::AliasableMut;
 use completion_core::CompletionFuture;
-use completion_io::{AsyncBufReadWith, AsyncReadWith, AsyncWrite, AsyncWriteWith, ReadBufMut};
+use completion_io::{
+    AsyncBufRead, AsyncBufReadWith, AsyncRead, AsyncReadWith, ReadBufRef, ReadBufsRef,
+};
+use completion_io::{AsyncWrite, AsyncWriteWith};
 use futures_core::ready;
 use pin_project_lite::pin_project;
 
@@ -30,7 +33,7 @@ use super::{extend_lifetime, extend_lifetime_mut};
 ///
 /// # The static bound
 ///
-/// The inner reader is currently required to live for `'static`. This is due to limitations with
+/// The inner writer is currently required to live for `'static`. This is due to limitations with
 /// Rust, and we can hopefully remove it in the future.
 #[derive(Debug)]
 pub struct BufWriter<W> {
@@ -487,16 +490,26 @@ where
     }
 }
 
-impl<'a, W: AsyncReadWith<'a>> AsyncReadWith<'a> for BufWriter<W> {
-    type ReadFuture = W::ReadFuture;
+impl<'a, 'b, W: AsyncRead> AsyncReadWith<'a, 'b> for BufWriter<W> {
+    type ReadFuture = <W as AsyncReadWith<'a, 'b>>::ReadFuture;
 
-    fn read(&'a mut self, buf: ReadBufMut<'a>) -> Self::ReadFuture {
+    fn read(&'a mut self, buf: ReadBufRef<'a>) -> <W as AsyncReadWith<'a, 'b>>::ReadFuture {
         self.inner.read(buf)
+    }
+
+    type ReadVectoredFuture = <W as AsyncReadWith<'a, 'b>>::ReadVectoredFuture;
+
+    fn read_vectored(&'a mut self, bufs: ReadBufsRef<'a, 'b>) -> Self::ReadVectoredFuture {
+        self.inner.read_vectored(bufs)
+    }
+
+    fn is_read_vectored(&self) -> bool {
+        self.inner.is_read_vectored()
     }
 }
 
-impl<'a, W: AsyncBufReadWith<'a>> AsyncBufReadWith<'a> for BufWriter<W> {
-    type FillBufFuture = W::FillBufFuture;
+impl<'a, W: AsyncBufRead> AsyncBufReadWith<'a> for BufWriter<W> {
+    type FillBufFuture = <W as AsyncBufReadWith<'a>>::FillBufFuture;
 
     fn fill_buf(&'a mut self) -> Self::FillBufFuture {
         self.inner.fill_buf()

@@ -5,7 +5,7 @@ use std::task::{Context, Poll};
 
 use aliasable::AliasableMut;
 use completion_core::CompletionFuture;
-use completion_io::{AsyncBufRead, AsyncBufReadWith, AsyncReadWith, ReadBufMut};
+use completion_io::{AsyncBufRead, AsyncBufReadWith, AsyncReadWith, ReadBufRef, ReadBufsRef};
 use futures_core::ready;
 use pin_project_lite::pin_project;
 
@@ -31,16 +31,31 @@ impl<R> TakeUntil<R> {
     }
 }
 
-impl<'a, R: AsyncBufRead> AsyncReadWith<'a> for TakeUntil<R> {
+impl<'a, 'b, R: AsyncBufRead> AsyncReadWith<'a, 'b> for TakeUntil<R> {
     type ReadFuture = ReadTakeUntil<'a, R>;
 
-    fn read(&'a mut self, buf: ReadBufMut<'a>) -> Self::ReadFuture {
+    fn read(&'a mut self, buf: ReadBufRef<'a>) -> Self::ReadFuture {
         let mut this = AliasableMut::from_unique(self);
         ReadTakeUntil {
             inner: unsafe { extend_lifetime_mut(&mut *this) }.fill_buf(),
             reader: this,
             buf,
         }
+    }
+
+    type ReadVectoredFuture = ReadVectoredTakeUntil<'a, 'b, R>;
+
+    fn read_vectored(&'a mut self, bufs: ReadBufsRef<'a, 'b>) -> Self::ReadVectoredFuture {
+        let mut this = AliasableMut::from_unique(self);
+        ReadVectoredTakeUntil {
+            inner: unsafe { extend_lifetime_mut(&mut *this) }.fill_buf(),
+            reader: this,
+            bufs,
+        }
+    }
+
+    fn is_read_vectored(&self) -> bool {
+        true
     }
 }
 
@@ -50,7 +65,7 @@ pin_project! {
         #[pin]
         inner: FillBufTakeUntil<'a, R>,
         reader: AliasableMut<'a, TakeUntil<R>>,
-        buf: ReadBufMut<'a>,
+        buf: ReadBufRef<'a>,
     }
 }
 
@@ -71,6 +86,42 @@ impl<R: AsyncBufRead> CompletionFuture for ReadTakeUntil<'_, R> {
 }
 
 impl<'a, R: AsyncBufRead> Future for ReadTakeUntil<'a, R>
+where
+    <R as AsyncBufReadWith<'a>>::FillBufFuture: Future<Output = Result<&'a [u8]>>,
+{
+    type Output = Result<()>;
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        unsafe { CompletionFuture::poll(self, cx) }
+    }
+}
+
+pin_project! {
+    /// Future for [`read_vectored`](AsyncReadWith::read_vectored) on a [`TakeUntil`].
+    pub struct ReadVectoredTakeUntil<'a, 'b, R: AsyncBufRead> {
+        #[pin]
+        inner: FillBufTakeUntil<'a, R>,
+        reader: AliasableMut<'a, TakeUntil<R>>,
+        bufs: ReadBufsRef<'a, 'b>,
+    }
+}
+
+impl<R: AsyncBufRead> CompletionFuture for ReadVectoredTakeUntil<'_, '_, R> {
+    type Output = Result<()>;
+
+    unsafe fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+        let available = ready!(this.inner.poll(cx))?;
+        let amt = std::cmp::min(this.bufs.remaining(), available.len());
+        this.bufs.append(&available[..amt]);
+        this.reader.consume(amt);
+        Poll::Ready(Ok(()))
+    }
+    unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.project().inner.poll_cancel(cx)
+    }
+}
+
+impl<'a, R: AsyncBufRead> Future for ReadVectoredTakeUntil<'a, '_, R>
 where
     <R as AsyncBufReadWith<'a>>::FillBufFuture: Future<Output = Result<&'a [u8]>>,
 {

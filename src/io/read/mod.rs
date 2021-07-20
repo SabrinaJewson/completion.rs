@@ -1,7 +1,7 @@
 #[cfg(doc)]
 use std::io::ErrorKind;
 
-use completion_io::{AsyncRead, ReadBufMut};
+use completion_io::{AsyncRead, ReadBufRef};
 
 use super::extend_lifetime_mut;
 #[cfg(test)]
@@ -132,13 +132,13 @@ pub trait AsyncReadExt: AsyncRead {
     ///
     /// let mut storage = [MaybeUninit::uninit(); 11];
     /// let mut buf = ReadBuf::uninit(&mut storage);
-    /// reader.read_exact(buf.as_mut()).await?;
+    /// reader.read_exact(buf.as_ref()).await?;
     ///
     /// assert_eq!(buf.into_filled(), b"Hello World");
     /// # completion_io::Result::Ok(())
     /// # }).unwrap();
     /// ```
-    fn read_exact<'a>(&'a mut self, buf: ReadBufMut<'a>) -> ReadExact<'a, Self> {
+    fn read_exact<'a>(&'a mut self, buf: ReadBufRef<'a>) -> ReadExact<'a, Self> {
         ReadExact::new(self, buf)
     }
 

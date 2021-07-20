@@ -70,7 +70,7 @@ impl<R: AsyncBufRead> CompletionStream for Lines<'_, R> {
                 }
             }
 
-            Some(Ok(mem::replace(buf, String::new())))
+            Some(Ok(mem::take(buf)))
         })
     }
     unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {

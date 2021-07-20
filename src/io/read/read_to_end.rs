@@ -23,7 +23,7 @@ pin_project! {
     {
         // The current reading future.
         #[pin]
-        fut: Option<<T as AsyncReadWith<'a>>::ReadFuture>,
+        fut: Option<<T as AsyncReadWith<'a, 'static>>::ReadFuture>,
 
         reader: AliasableMut<'a, T>,
 
@@ -114,7 +114,7 @@ impl<'a, T: AsyncRead + ?Sized + 'a> CompletionFuture for ReadToEnd<'a, T> {
             // Set the reading future.
             let reader = extend_lifetime_mut(&mut **this.reader);
             let read_buf = extend_lifetime_mut(read_buf);
-            this.fut.as_mut().set(Some(reader.read(read_buf.as_mut())));
+            this.fut.as_mut().set(Some(reader.read(read_buf.as_ref())));
         }
     }
     unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
@@ -137,7 +137,7 @@ impl<'a, T: AsyncRead + ?Sized + 'a> CompletionFuture for ReadToEnd<'a, T> {
 }
 impl<'a, T: AsyncRead + ?Sized + 'a> Future for ReadToEnd<'a, T>
 where
-    <T as AsyncReadWith<'a>>::ReadFuture: Future<Output = Result<()>>,
+    <T as AsyncReadWith<'a, 'static>>::ReadFuture: Future<Output = Result<()>>,
 {
     type Output = Result<usize>;
 

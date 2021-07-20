@@ -119,7 +119,7 @@ impl<'a, T: AsyncRead + ?Sized + 'a> CompletionFuture for ReadToString<'a, T> {
 }
 impl<'a, T: AsyncRead + ?Sized + 'a> Future for ReadToString<'a, T>
 where
-    <T as AsyncReadWith<'a>>::ReadFuture: Future<Output = Result<()>>,
+    <T as AsyncReadWith<'a, 'static>>::ReadFuture: Future<Output = Result<()>>,
 {
     type Output = Result<usize>;
 

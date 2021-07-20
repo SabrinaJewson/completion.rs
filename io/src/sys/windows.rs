@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 use std::mem::MaybeUninit;
 use std::ptr;
 
-use winapi::shared::ntdef::{CHAR, ULONG};
+use winapi::shared::ntdef::ULONG;
 use winapi::shared::ws2def::WSABUF;
 
 #[repr(transparent)]

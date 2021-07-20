@@ -212,10 +212,10 @@ fn cancel_completion_future() {
     assert_eq!(test_utils::poll_once(fut.as_mut()), None);
     assert_eq!(number.get(), 1);
 
-    assert_eq!(test_utils::poll_cancel_once(fut.as_mut()), false);
+    assert!(!test_utils::poll_cancel_once(fut.as_mut()));
     assert_eq!(number.get(), 2);
 
-    assert_eq!(test_utils::poll_cancel_once(fut.as_mut()), true);
+    assert!(test_utils::poll_cancel_once(fut.as_mut()));
     assert_eq!(number.get(), 3);
 }
 
@@ -256,6 +256,6 @@ fn cancel_future() {
     assert_eq!(test_utils::poll_once(fut.as_mut()), None);
     assert_eq!(number.get(), 2);
 
-    assert_eq!(test_utils::poll_cancel_once(fut.as_mut()), true);
+    assert!(test_utils::poll_cancel_once(fut.as_mut()));
     assert_eq!(number.get(), 2);
 }

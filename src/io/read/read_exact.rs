@@ -5,7 +5,7 @@ use std::task::{Context, Poll};
 
 use aliasable::AliasableMut;
 use completion_core::CompletionFuture;
-use completion_io::{AsyncRead, AsyncReadWith, ReadBuf, ReadBufMut};
+use completion_io::{AsyncRead, AsyncReadWith, ReadBuf, ReadBufRef};
 use futures_core::ready;
 use pin_project_lite::pin_project;
 
@@ -19,7 +19,7 @@ pin_project! {
         T: ?Sized,
     {
         #[pin]
-        fut: Option<<T as AsyncReadWith<'a>>::ReadFuture>,
+        fut: Option<<T as AsyncReadWith<'a, 'static>>::ReadFuture>,
         reader: AliasableMut<'a, T>,
         buf: AliasableMut<'a, ReadBuf<'a>>,
         // The number of bytes filled at the start of the previous operation.
@@ -28,7 +28,7 @@ pin_project! {
 }
 
 impl<'a, T: AsyncRead + ?Sized + 'a> ReadExact<'a, T> {
-    pub(super) fn new(reader: &'a mut T, buf: ReadBufMut<'a>) -> Self {
+    pub(super) fn new(reader: &'a mut T, buf: ReadBufRef<'a>) -> Self {
         Self {
             fut: None,
             reader: AliasableMut::from_unique(reader),
@@ -77,7 +77,7 @@ impl<'a, T: AsyncRead + ?Sized + 'a> CompletionFuture for ReadExact<'a, T> {
 
             let reader = extend_lifetime_mut(&mut **this.reader);
             let read_buf = extend_lifetime_mut(read_buf);
-            this.fut.set(Some(reader.read(read_buf.as_mut())));
+            this.fut.set(Some(reader.read(read_buf.as_ref())));
         }
     }
     unsafe fn poll_cancel(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
@@ -90,7 +90,7 @@ impl<'a, T: AsyncRead + ?Sized + 'a> CompletionFuture for ReadExact<'a, T> {
 }
 impl<'a, T: AsyncRead + ?Sized + 'a> Future for ReadExact<'a, T>
 where
-    <T as AsyncReadWith<'a>>::ReadFuture: Future<Output = Result<()>>,
+    <T as AsyncReadWith<'a, 'static>>::ReadFuture: Future<Output = Result<()>>,
 {
     type Output = Result<()>;
 
@@ -116,7 +116,7 @@ mod tests {
 
         let mut storage = [MaybeUninit::uninit(); 10];
         let mut buffer = ReadBuf::uninit(&mut storage);
-        block_on(cursor.read_exact(buffer.as_mut())).unwrap();
+        block_on(cursor.read_exact(buffer.as_ref())).unwrap();
 
         assert_eq!(buffer.into_filled(), [8; 10]);
         assert_eq!(cursor.position(), 10);
@@ -128,7 +128,7 @@ mod tests {
 
         let mut storage = [MaybeUninit::uninit(); 10];
         let mut buffer = ReadBuf::uninit(&mut storage);
-        block_on(reader.read_exact(buffer.as_mut())).unwrap();
+        block_on(reader.read_exact(buffer.as_ref())).unwrap();
 
         assert_eq!(buffer.into_filled(), [5, 6, 7, 5, 6, 7, 5, 6, 7, 5]);
     }
@@ -147,7 +147,7 @@ mod tests {
         let mut storage = [MaybeUninit::uninit(); 10];
         let mut buffer = ReadBuf::uninit(&mut storage);
         assert_eq!(
-            block_on(reader.read_exact(buffer.as_mut()))
+            block_on(reader.read_exact(buffer.as_ref()))
                 .unwrap_err()
                 .kind(),
             ErrorKind::UnexpectedEof
