@@ -197,7 +197,7 @@ mod tests {
             fn foo<'__completion_future>() -> impl c::CompletionFuture<Output = ()> + '__completion_future {
                 c::__completion_async(async move {
                     #[allow(unused_imports)]
-                    use c::__CompletionFutureIntoAwaitable;
+                    use c::{__CompletionFutureIntoAwaitable, __IntoFutureOrCompletionFuture};
                     #[allow(unused_variables)]
                     let #in_scope = ();
 
@@ -234,11 +234,11 @@ mod tests {
             {
                 ::crate::path::__completion_async(async move {
                     #[allow(unused_imports)]
-                    use ::crate::path::__CompletionFutureIntoAwaitable;
+                    use ::crate::path::{__CompletionFutureIntoAwaitable, __IntoFutureOrCompletionFuture};
                     #[allow(unused_variables)]
                     let #in_scope = ();
 
-                    (#in_scope, ::crate::path::__FutureOrCompletionFuture(fut).__into_awaitable().await).1;
+                    (#in_scope, fut.__into_future_or_completion_future().__into_awaitable().await).1;
                 })
             }
         };
@@ -297,11 +297,11 @@ mod tests {
                 #![inner(attributes)]
                 ::std::boxed::Box::pin(c::__completion_async(async move {
                     #[allow(unused_imports)]
-                    use c::__CompletionFutureIntoAwaitable;
+                    use c::{__CompletionFutureIntoAwaitable, __IntoFutureOrCompletionFuture};
                     #[allow(unused_variables)]
                     let #in_scope = ();
 
-                    (#in_scope, c::__FutureOrCompletionFuture(x).__into_awaitable().await).1?
+                    (#in_scope, x.__into_future_or_completion_future().__into_awaitable().await).1?
                 }))
             }
         };

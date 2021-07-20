@@ -76,6 +76,7 @@ fn nested() {
 }
 
 #[test]
+#[cfg(not(miri))]
 fn await_parens() {
     block_on(completion_async! {
         let mut future = yield_now();

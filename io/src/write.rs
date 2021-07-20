@@ -28,7 +28,7 @@ pub trait AsyncWriteWith<'a> {
     /// written. If your writer does not have efficient vectored writes, set this to
     /// [`DefaultWriteVectored<'a, Self>`](DefaultWriteVectored).
     ///
-    /// Note that it is **not** considered a semver breaking change to change this associated type
+    /// Note that it is **not** considered a Semver breaking change to change this associated type
     /// from [`DefaultWriteVectored`] to another type, so if you are using a writer whose associated
     /// `WriteVectoredFuture` type is [`DefaultWriteVectored`], you should not rely on it staying
     /// that way.

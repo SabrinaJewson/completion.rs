@@ -65,14 +65,14 @@ pub(crate) fn transform(mut expr: ExprAsync, crate_path: &CratePath) -> TokenStr
 /// ```ignore
 /// ::completion::__completion_async(async {
 ///     #[allow(unused_imports)]
-///     use ::completion::__CompletionFutureIntoAwaitable;
+///     use ::completion::{__CompletionFutureIntoAwaitable, __IntoFutureOrCompletionFuture};
 ///     #[allow(unused_variables)]
 ///     let awaitable_completion_futures = ();
 ///
 ///     #[some_attribute_macro]
 ///     (
 ///         awaitable_completion_futures,
-///         ::completion::__FutureOrCompletionFuture(x()).__into_awaitable().await
+///         x().__into_future_or_completion_future().__into_awaitable().await
 ///     )
 ///     .1
 /// })
@@ -83,14 +83,14 @@ pub(crate) fn transform(mut expr: ExprAsync, crate_path: &CratePath) -> TokenStr
 /// ```ignore
 /// ::completion::__completion_async(async {
 ///     #[allow(unused_imports)]
-///     use ::completion::__CompletionFutureIntoAwaitable;
+///     use ::completion::{__CompletionFutureIntoAwaitable, __IntoFutureOrCompletionFuture};
 ///     #[allow(unused_variables)]
 ///     let awaitable_completion_futures = ();
 ///
 ///     async fn some_function() {
 ///         (
 ///             awaitable_completion_futures,
-///             ::completion::__FutureOrCompletionFuture(x()).__into_awaitable().await
+///             x().__into_future_or_completion_future().__into_awaitable().await
 ///         )
 ///         .1
 ///     }
@@ -127,7 +127,7 @@ mod tests {
         let output: Expr = parse_quote! {
             crate::__completion_async(async move {
                 #[allow(unused_imports)]
-                use crate::__CompletionFutureIntoAwaitable;
+                use crate::{__CompletionFutureIntoAwaitable, __IntoFutureOrCompletionFuture};
                 #[allow(unused_variables)]
                 let #in_scope = ();
                 #output
@@ -154,7 +154,7 @@ mod tests {
         let in_scope = in_scope();
         let output = quote! {
             #[attr]
-            (#in_scope, crate::__FutureOrCompletionFuture(fut).__into_awaitable().await).1
+            (#in_scope, fut.__into_future_or_completion_future().__into_awaitable().await).1
         };
 
         test(input, output);
@@ -192,18 +192,18 @@ mod tests {
         let in_scope = in_scope();
         let output = quote! {
             crate::__special_macros::assert_eq!(
-                (#in_scope, crate::__FutureOrCompletionFuture(a).__into_awaitable().await).1,
-                (#in_scope, crate::__FutureOrCompletionFuture(b).__into_awaitable().await).1
+                (#in_scope, a.__into_future_or_completion_future().__into_awaitable().await).1,
+                (#in_scope, b.__into_future_or_completion_future().__into_awaitable().await).1
             );
             crate::__special_macros::assert_eq!(
-                (#in_scope, crate::__FutureOrCompletionFuture(a).__into_awaitable().await).1,
-                (#in_scope, crate::__FutureOrCompletionFuture(b).__into_awaitable().await).1,
+                (#in_scope, a.__into_future_or_completion_future().__into_awaitable().await).1,
+                (#in_scope, b.__into_future_or_completion_future().__into_awaitable().await).1,
             );
 
             crate::__special_macros::dbg!(not_assert_eq!(a.await, b.await));
 
             crate::__special_macros::matches!(
-                (#in_scope, crate::__FutureOrCompletionFuture(fut).__into_awaitable().await).1,
+                (#in_scope, fut.__into_future_or_completion_future().__into_awaitable().await).1,
                 Any tokens "can" go 'here and _ should be passed verbatim!.await
             );
         };
@@ -221,13 +221,20 @@ mod tests {
         let output = quote! {
             {{((f((
                 #in_scope,
-                crate::__FutureOrCompletionFuture((
+                (
                     #in_scope,
-                    crate::__FutureOrCompletionFuture((#[attr] (
+                    (#[attr] (
                         #in_scope,
-                        crate::__FutureOrCompletionFuture(x).__into_awaitable().await
-                    ).1)).__into_awaitable().await
-                ).1).__into_awaitable().await
+                        x.__into_future_or_completion_future().__into_awaitable().await
+                    ).1)
+                    .__into_future_or_completion_future()
+                    .__into_awaitable()
+                    .await
+                )
+                .1
+                .__into_future_or_completion_future()
+                .__into_awaitable()
+                .await
             ).1)))}}
         };
         test(input, output);
@@ -249,7 +256,7 @@ mod tests {
                 struct SomeItems;
 
                 #[allow(unused_imports)]
-                use crate::__CompletionFutureIntoAwaitable;
+                use crate::{__CompletionFutureIntoAwaitable, __IntoFutureOrCompletionFuture};
                 #[allow(unused_variables)]
                 let #in_scope = ();
 

@@ -94,7 +94,7 @@ mod tests {
             crate::__completion_stream(
                 crate::__completion_async(async move {
                     #[allow(unused_imports)]
-                    use crate::__CompletionFutureIntoAwaitable;
+                    use crate::{__CompletionFutureIntoAwaitable, __IntoFutureOrCompletionFuture};
                     #[allow(unused_variables)]
                     let #in_scope = ();
                     #output
@@ -149,36 +149,38 @@ mod tests {
             #[attr1]
             (
                 #in_scope,
-                crate::__FutureOrCompletionFuture(
-                    crate::__yield_value(
-                        item,
-                        #[attr2]
-                        (
-                            #in_scope,
-                            crate::__FutureOrCompletionFuture(fut).__into_awaitable().await
-                        )
-                        .1
+                crate::__yield_value(
+                    item,
+                    #[attr2]
+                    (
+                        #in_scope,
+                        fut.__into_future_or_completion_future().__into_awaitable().await
                     )
+                    .1
                 )
+                .__into_future_or_completion_future()
                 .__into_awaitable()
                 .await
             ).1;
 
             (
                 #in_scope,
-                crate::__FutureOrCompletionFuture(
+                crate::__yield_value(item, ((
+                    #in_scope,
                     crate::__yield_value(item, ((
                         #in_scope,
-                        crate::__FutureOrCompletionFuture(
-                            crate::__yield_value(item, ((
-                                #in_scope,
-                                crate::__FutureOrCompletionFuture(
-                                    crate::__yield_value(item, ())
-                                ).__into_awaitable().await
-                            ).1))
-                        ).__into_awaitable().await
+                        crate::__yield_value(item, ())
+                        .__into_future_or_completion_future()
+                        .__into_awaitable()
+                        .await
                     ).1))
-                ).__into_awaitable().await
+                    .__into_future_or_completion_future()
+                    .__into_awaitable()
+                    .await
+                ).1))
+                .__into_future_or_completion_future()
+                .__into_awaitable()
+                .await
             )
             .1
         };
@@ -200,12 +202,13 @@ mod tests {
                     #[allow(clippy::useless_conversion)]
                     (
                         #in_scope,
-                        crate::__FutureOrCompletionFuture(
-                            crate::__yield_value(
-                                item,
-                                crate::__Try::from_error(::core::convert::From::from(e))
-                            )
-                        ).__into_awaitable().await
+                        crate::__yield_value(
+                            item,
+                            crate::__Try::from_error(::core::convert::From::from(e))
+                        )
+                        .__into_future_or_completion_future()
+                        .__into_awaitable()
+                        .await
                     )
                     .1;
                     return

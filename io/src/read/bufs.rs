@@ -8,7 +8,7 @@ use super::co_mut::CoMut;
 use super::MaybeUninitIoSliceMut;
 use super::{buf_assume_init_mut, buf_assume_init_ref, bufs_assume_init_mut, bufs_assume_init_ref};
 
-/// A wrapper around a set of byte buffers that are incrementally filled and intialized.
+/// A wrapper around a set of byte buffers that are incrementally filled and initialized.
 pub struct ReadBufs<'a, 'b> {
     data: &'a mut [MaybeUninitIoSliceMut<'b>],
     /// The number of buffers that have been fully filled. This is always accurate.
