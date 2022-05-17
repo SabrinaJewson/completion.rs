@@ -1,11 +1,10 @@
 [package]
 name = "completion-io"
 version = "0.2.0"
-authors = ["KaiJewson <kai.jewson@gmail.com>"]
 edition = "2018"
 description = "Core traits and types for asynchronous completion-based I/O"
 readme = "README.md"
-repository = "https://github.com/KaiJewson/completion"
+repository = "https://github.com/SabrinaJewson/completion.rs"
 license = "MIT OR Apache-2.0"
 keywords = ["completion", "future", "async", "runtocompletion", "io"]
 categories = ["asynchronous", "no-std"]
