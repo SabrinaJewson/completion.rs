@@ -1,3 +1,7 @@
+//! Note: My interest in this crate has now been superseded by [my proposal for asynchronous
+//! destructors and a `Leak` trait](https://sabrinajewson.org/blog/async-drop). I no longer think
+//! this design is the best way to achieve completion futures.
+//!
 //! Utilities for writing completion-based asynchronous code.
 //!
 //! A completion future is a future that must be run to completion, unlike regular futures which
